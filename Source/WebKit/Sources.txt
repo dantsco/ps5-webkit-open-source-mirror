@@ -683,6 +683,8 @@ WebProcess/Inspector/WebInspectorUIExtensionController.cpp
 WebProcess/Inspector/WebPageInspectorTarget.cpp
 WebProcess/Inspector/WebPageInspectorTargetController.cpp
 WebProcess/Inspector/WebPageInspectorTargetFrontendChannel.cpp
+WebProcess/Inspector/ServiceWorkerDebuggableFrontendChannel.cpp
+WebProcess/Inspector/ServiceWorkerDebuggableProxy.cpp
 
 WebProcess/MediaSession/RemoteMediaSessionCoordinator.cpp
 

@@ -1765,6 +1765,14 @@
         (global-name "com.apple.analyticsd")
         (global-name "com.apple.diagnosticd")))
 
+#if !ENABLE(REMOVE_XPC_AND_MACH_SANDBOX_EXTENSIONS_IN_WEBCONTENT)
+(with-filter (require-not (state-flag "BlockWebInspectorInWebContentSandbox"))
+    (allow mach-lookup (with telemetry-backtrace)
+        (require-all
+            (extension "com.apple.webkit.extension.mach")
+            (global-name "com.apple.webinspector"))))
+#endif
+
 (allow mach-lookup
     (require-all
         (extension "com.apple.webkit.extension.mach")

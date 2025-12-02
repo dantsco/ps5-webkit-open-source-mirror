@@ -51,6 +51,12 @@ messages -> WebSWContextManagerConnection {
 
     NavigationPreloadIsReady(WebCore::SWServerConnectionIdentifier serverConnectionIdentifier, WebCore::ServiceWorkerIdentifier serviceWorkerIdentifier, WebCore::FetchIdentifier identifier, WebCore::ResourceResponse response)
     NavigationPreloadFailed(WebCore::SWServerConnectionIdentifier serverConnectionIdentifier, WebCore::ServiceWorkerIdentifier serviceWorkerIdentifier, WebCore::FetchIdentifier identifier, WebCore::ResourceError error)
+
+#if ENABLE(REMOTE_INSPECTOR)
+    ConnectToInspector(WebCore::ServiceWorkerIdentifier serviceWorkerIdentifier)
+    DisconnectFromInspector(WebCore::ServiceWorkerIdentifier serviceWorkerIdentifier)
+    DispatchMessageFromInspector(WebCore::ServiceWorkerIdentifier serviceWorkerIdentifier, String message)
+#endif
 }
 
 #endif

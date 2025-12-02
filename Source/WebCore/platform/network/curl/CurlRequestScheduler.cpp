@@ -191,7 +191,7 @@ void CurlRequestScheduler::workerThread()
                 completeTransfer(client, msg->data.result);
         }
 
-        stopThreadIfNoMoreJobRunning();
+//        stopThreadIfNoMoreJobRunning();
     }
 
     {

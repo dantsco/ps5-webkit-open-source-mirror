@@ -91,4 +91,10 @@ messages -> WebProcessProxy LegacyReceiver {
     PostMessageToRemote(WebCore::ProcessIdentifier processIdentifier, struct WebCore::FrameIdentifier identifier, std::optional<WebCore::SecurityOriginData> target, struct WebCore::MessageWithMessagePorts message)
 
     RenderTreeAsText(WebCore::ProcessIdentifier processIdentifier, struct WebCore::FrameIdentifier identifier, size_t baseIndent, OptionSet<WebCore::RenderAsTextFlag> behavior) -> (String renderTreeDump) Synchronous
+
+#if ENABLE(REMOTE_INSPECTOR) && ENABLE(SERVICE_WORKER)
+    CreateServiceWorkerDebuggable(WebCore::ServiceWorkerIdentifier identifier, URL url)
+    DeleteServiceWorkerDebuggable(WebCore::ServiceWorkerIdentifier identifier)
+    SendMessageToInspector(WebCore::ServiceWorkerIdentifier identifier, String message);
+#endif
 }

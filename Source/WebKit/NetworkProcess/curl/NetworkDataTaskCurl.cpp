@@ -154,9 +154,9 @@ Ref<CurlRequest> NetworkDataTaskCurl::createCurlRequest(ResourceRequest&& reques
     const auto captureMetrics = shouldCaptureExtraNetworkLoadMetrics() ? CurlRequest::CaptureNetworkLoadMetrics::Extended : CurlRequest::CaptureNetworkLoadMetrics::Basic;
 #if PLATFORM(PLAYSTATION) // for downstream-only
     auto isMainResource = firstRequest().requester() == ResourceRequestRequester::Main;
-    return CurlTMServiceRequest::create(request, *this, CurlRequest::EnableMultipart::No, captureMetrics, isMainResource);
+    return CurlTMServiceRequest::create(request, *this, captureMetrics, isMainResource);
 #else
-    return CurlRequest::create(request, *this, CurlRequest::EnableMultipart::No, captureMetrics);
+    return CurlRequest::create(request, *this, captureMetrics);
 #endif
 }
 

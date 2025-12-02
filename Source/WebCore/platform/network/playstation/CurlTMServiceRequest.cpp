@@ -39,16 +39,16 @@
 
 namespace WebCore {
 
-Ref<CurlRequest> CurlTMServiceRequest::create(const ResourceRequest& request, CurlRequestClient& client, EnableMultipart enableMultipart, CaptureNetworkLoadMetrics captureMetrics, bool isMainResource)
+Ref<CurlRequest> CurlTMServiceRequest::create(const ResourceRequest& request, CurlRequestClient& client, CaptureNetworkLoadMetrics captureMetrics, bool isMainResource)
 {
     if (WebSecurity::activatedStatus())
-        return adoptRef(*new CurlTMServiceRequest(request, &client, enableMultipart, captureMetrics, isMainResource));
+        return adoptRef(*new CurlTMServiceRequest(request, &client, captureMetrics, isMainResource));
 
-    return CurlRequest::create(request, client, enableMultipart, captureMetrics);
+    return CurlRequest::create(request, client, captureMetrics);
 }
 
-CurlTMServiceRequest::CurlTMServiceRequest(const ResourceRequest& request, CurlRequestClient* client, EnableMultipart enableMultipart, CaptureNetworkLoadMetrics captureMetrics, bool isMainResource)
-    : CurlRequest(request, client, enableMultipart, captureMetrics)
+CurlTMServiceRequest::CurlTMServiceRequest(const ResourceRequest& request, CurlRequestClient* client, CaptureNetworkLoadMetrics captureMetrics, bool isMainResource)
+    : CurlRequest(request, client, captureMetrics)
     , m_isMainResource(isMainResource)
 {
 }

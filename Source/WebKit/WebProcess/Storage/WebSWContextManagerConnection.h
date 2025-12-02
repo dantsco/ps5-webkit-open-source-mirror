@@ -57,6 +57,8 @@ enum class WorkerThreadMode : bool;
 namespace WebKit {
 
 class RemoteWorkerFrameLoaderClient;
+class ServiceWorkerDebuggableFrontendChannel;
+class WebServiceWorkerFetchTaskClient;
 class WebUserContentController;
 struct RemoteWorkerInitializationData;
 
@@ -126,6 +128,12 @@ private:
     void navigationPreloadIsReady(WebCore::SWServerConnectionIdentifier, WebCore::ServiceWorkerIdentifier, WebCore::FetchIdentifier, WebCore::ResourceResponse&&);
     void navigationPreloadFailed(WebCore::SWServerConnectionIdentifier, WebCore::ServiceWorkerIdentifier, WebCore::FetchIdentifier, WebCore::ResourceError&&);
 
+#if ENABLE(REMOTE_INSPECTOR)
+    void connectToInspector(WebCore::ServiceWorkerIdentifier);
+    void disconnectFromInspector(WebCore::ServiceWorkerIdentifier);
+    void dispatchMessageFromInspector(WebCore::ServiceWorkerIdentifier, String&&);
+#endif
+
     Ref<IPC::Connection> m_connectionToNetworkProcess;
     WebCore::RegistrableDomain m_registrableDomain;
     std::optional<WebCore::ScriptExecutionContextIdentifier> m_serviceWorkerPageIdentifier;
@@ -142,6 +150,10 @@ private:
     Ref<WebUserContentController> m_userContentController;
     std::optional<WebPreferencesStore> m_preferencesStore;
     Ref<WorkQueue> m_queue;
+
+#if ENABLE(REMOTE_INSPECTOR)
+    HashMap<WebCore::ServiceWorkerIdentifier, Ref<ServiceWorkerDebuggableFrontendChannel>> m_channels;
+#endif
 };
 
 } // namespace WebKit

@@ -102,7 +102,7 @@ inline constexpr size_t ASCIILiteral::length() const
 
 inline namespace StringLiterals {
 
-constexpr ASCIILiteral operator"" _s(const char* characters, size_t n)
+constexpr ASCIILiteral operator""_s(const char* characters, size_t n)
 {
 #if ASSERT_ENABLED
     for (size_t i = 0; i < n; ++i)

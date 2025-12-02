@@ -73,6 +73,10 @@
 #include "AssertReportProxyMessages.h"
 #endif
 
+#if ENABLE(REMOTE_INSPECTOR)
+#include "ServiceWorkerDebuggableProxy.h"
+#endif
+
 namespace API {
 class Navigation;
 class PageConfiguration;
@@ -628,6 +632,12 @@ private:
     bool shouldTakeNearSuspendedAssertion() const;
     bool shouldDropNearSuspendedAssertionAfterDelay() const;
 
+#if ENABLE(REMOTE_INSPECTOR) && ENABLE(SERVICE_WORKER)
+    void createServiceWorkerDebuggable(WebCore::ServiceWorkerIdentifier, URL&&);
+    void deleteServiceWorkerDebuggable(WebCore::ServiceWorkerIdentifier);
+    void sendMessageToInspector(WebCore::ServiceWorkerIdentifier, String&& message);
+#endif
+
     enum class IsWeak : bool { No, Yes };
     template<typename T> class WeakOrStrongPtr {
     public:
@@ -782,6 +792,9 @@ private:
     bool m_platformSuspendDidReleaseNearSuspendedAssertion { false };
 #endif
     mutable String m_environmentIdentifier;
+#if ENABLE(REMOTE_INSPECTOR) && ENABLE(SERVICE_WORKER)
+    HashMap<WebCore::ServiceWorkerIdentifier, Ref<ServiceWorkerDebuggableProxy>> m_serviceWorkerDebuggableProxies;
+#endif
 };
 
 WTF::TextStream& operator<<(WTF::TextStream&, const WebProcessProxy&);

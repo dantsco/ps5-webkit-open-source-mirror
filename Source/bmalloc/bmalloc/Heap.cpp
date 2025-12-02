@@ -305,8 +305,10 @@ SmallPage* Heap::allocateSmallPage(UniqueLockHolder& lock, size_t sizeClass, Lin
         chunk->ref();
 
         SmallPage* page = chunk->freePages().pop();
-        if (chunk->freePages().isEmpty())
-            m_freePages[pageClass].remove(chunk);
+        if (chunk->freePages().isEmpty()) {
+            auto page = m_freePages[pageClass];
+            page.remove(chunk);
+        }
 
         size_t pageSize = bmalloc::pageSize(pageClass);
         size_t physicalSize = physicalPageSizeSloppy(page->begin()->begin(), pageSize);
@@ -362,7 +364,8 @@ void Heap::deallocateSmallLine(UniqueLockHolder& lock, Object object, LineCache&
     chunk->deref();
 
     if (!chunk->refCount()) {
-        m_freePages[pageClass].remove(chunk);
+        auto page = m_freePages[pageClass];
+        page.remove(chunk);
 
         if (!m_chunkCache[pageClass].isEmpty())
             deallocateSmallChunk(lock, m_chunkCache[pageClass].pop(), pageClass);

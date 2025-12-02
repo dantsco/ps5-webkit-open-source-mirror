@@ -46,19 +46,14 @@ class CurlRequest : public ThreadSafeRefCounted<CurlRequest>, public CurlRequest
     WTF_MAKE_NONCOPYABLE(CurlRequest);
 
 public:
-    enum class EnableMultipart : bool {
-        No = false,
-        Yes = true
-    };
-
     enum class CaptureNetworkLoadMetrics : uint8_t {
         Basic,
         Extended
     };
 
-    static Ref<CurlRequest> create(const ResourceRequest& request, CurlRequestClient& client, EnableMultipart enableMultipart = EnableMultipart::No, CaptureNetworkLoadMetrics captureMetrics = CaptureNetworkLoadMetrics::Basic)
+    static Ref<CurlRequest> create(const ResourceRequest& request, CurlRequestClient& client, CaptureNetworkLoadMetrics captureMetrics = CaptureNetworkLoadMetrics::Basic)
     {
-        return adoptRef(*new CurlRequest(request, &client, enableMultipart, captureMetrics));
+        return adoptRef(*new CurlRequest(request, &client, captureMetrics));
     }
 
     virtual ~CurlRequest();
@@ -96,8 +91,8 @@ public:
 protected:
 #else
 private:
-#endif    
-    WEBCORE_EXPORT CurlRequest(const ResourceRequest&, CurlRequestClient*, EnableMultipart, CaptureNetworkLoadMetrics);
+#endif
+    WEBCORE_EXPORT CurlRequest(const ResourceRequest&, CurlRequestClient*, CaptureNetworkLoadMetrics);
 
     void retain() override { ref(); }
     void release() override { deref(); }
@@ -115,8 +110,9 @@ private:
     size_t willSendData(char*, size_t, size_t);
     size_t didReceiveHeader(String&&);
     size_t didReceiveData(const SharedBuffer&);
-    void didReceiveHeaderFromMultipart(const Vector<String>&) override;
-    void didReceiveDataFromMultipart(const SharedBuffer&) override;
+    void didReceiveHeaderFromMultipart(Vector<String>&&) override;
+    void didReceiveDataFromMultipart(Ref<SharedBuffer>&&) override;
+    void didCompleteFromMultipart() override;
     void didCompleteTransfer(CURLcode) override;
     void didCancelTransfer() override;
     void finalizeTransfer();
@@ -157,7 +153,6 @@ private:
 #if PLATFORM(PLAYSTATION) // for downstream-only
     std::optional<CertificateInfo> m_clientCertificate;
 #endif
-    bool m_enableMultipart { false };
 
     std::unique_ptr<CurlHandle> m_curlHandle;
     CurlFormDataStream m_formDataStream;

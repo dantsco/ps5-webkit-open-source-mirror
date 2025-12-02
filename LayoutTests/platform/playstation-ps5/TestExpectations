@@ -1985,10 +1985,6 @@ fast/transforms/scrollIntoView-transformed.html [ Failure ]
 # fast/url Unexpected text-only failures
 fast/url/data-url-mediatype.html [ Failure ]
 
-# fast/url/idna2008.html and fast/url/url-hostname-encoding.html are disabled
-fast/url/idna2008.html [ Failure ]
-fast/url/url-hostname-encoding.html [ Failure ]
-
 # fast/viewport Unexpected text-only failures
 fast/viewport/viewport-legacy-handheldfriendly.html [ Failure ]
 fast/viewport/viewport-legacy-mobileoptimized-2.html [ Failure ]
@@ -2366,6 +2362,9 @@ media/media-source/media-source-webm-configuration-vp9-header-color.html [ Failu
 # It's a spec that fire seeked event when appendBuffer to seeked time
 media/media-source/media-source-seek-redundant-append.html [ Timeout ]
 
+# Result is flakey, audio tag does not buffering, so sometimes 'canplaythrough' event fires after set currentTime before end of test
+media/media-ended-fired-once.html [ Pass Failure ]
+
 # SourceBufferPrivatePlayStation::append does not support two streams in one SourceBuffer.
 media/media-source/media-source-abort-resets-parser.html [ Failure ]
 media/media-source/media-source-current-time.html [ Timeout ]
@@ -2553,6 +2552,7 @@ media/media-load-event.html [ Skip ]
 media/restricted-audio-playback-with-document-gesture.html [ Skip ]
 media/restricted-audio-playback-with-multiple-settimeouts.html [ Skip ]
 media/video-background-playback.html [ Skip ]
+media/video-ended-event-negative-playback.html [ Skip ]
 media/video-defaultmuted.html [ Skip ]
 
 # HTMLMediaElement::shouldDisableSleep always return "None"

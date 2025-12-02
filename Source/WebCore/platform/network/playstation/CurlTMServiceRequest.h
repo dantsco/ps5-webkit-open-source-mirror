@@ -40,7 +40,7 @@ class SharedBuffer;
 class CurlTMServiceRequest : public CurlRequest, public CurlRequestClient {
     WTF_MAKE_NONCOPYABLE(CurlTMServiceRequest);
 public:
-    static Ref<CurlRequest> create(const ResourceRequest&, CurlRequestClient&, EnableMultipart = EnableMultipart::No, CaptureNetworkLoadMetrics captureMetrics = CaptureNetworkLoadMetrics::Basic, bool isMainResource = false);
+    static Ref<CurlRequest> create(const ResourceRequest&, CurlRequestClient&, CaptureNetworkLoadMetrics captureMetrics = CaptureNetworkLoadMetrics::Basic, bool isMainResource = false);
 
     void cancel() override;
     void resume() override;
@@ -49,7 +49,7 @@ public:
     void deref() override { ThreadSafeRefCounted<CurlRequest>::deref(); }
 
 private:
-    CurlTMServiceRequest(const ResourceRequest&, CurlRequestClient*, EnableMultipart, CaptureNetworkLoadMetrics captureMetrics, bool isMainResource);
+    CurlTMServiceRequest(const ResourceRequest&, CurlRequestClient*, CaptureNetworkLoadMetrics captureMetrics, bool isMainResource);
     virtual ~CurlTMServiceRequest();
 
     Ref<CurlRequest> createCurlTMServiceRequest(URL&&);

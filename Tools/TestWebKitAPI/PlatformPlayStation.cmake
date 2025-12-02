@@ -31,7 +31,7 @@ WEBKIT_ADD_TARGET_CXX_FLAGS(TestJavaScriptCore -Wno-unused-function)
 
 list(APPEND TestWebCore_SOURCES
     ${test_main_SOURCES}
-
+    Tests/WebCore/curl/CurlMultipartHandleTests.cpp
     Tests/WebCore/curl/OpenSSLHelperTests.cpp
 )
 list(APPEND TestWebCore_PRIVATE_INCLUDE_DIRECTORIES

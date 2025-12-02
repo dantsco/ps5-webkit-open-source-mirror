@@ -337,6 +337,12 @@ void WKPageReload(WKPageRef pageRef)
     if (linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::ExpiredOnlyReloadBehavior))
         reloadOptions.add(WebCore::ReloadOption::ExpiredOnly);
 #endif
+#if PLATFORM(PLAYSTATION) // for downstream-only
+    // Because memory cache conditional requests fail under certain conditions,
+    // we add the ExpiredOnly option when reloading to reduce the number of
+    // conditional requests being issued.
+    reloadOptions.add(WebCore::ReloadOption::ExpiredOnly);
+#endif
 
     toImpl(pageRef)->reload(reloadOptions);
 }

@@ -1132,10 +1132,6 @@ fast/transforms/scrollIntoView-transformed.html [ Failure ]
 # fast/url Unexpected text-only failures
 fast/url/data-url-mediatype.html [ Failure ]
 
-# fast/url/idna2008.html and fast/url/url-hostname-encoding.html are disabled
-fast/url/idna2008.html [ Failure ]
-fast/url/url-hostname-encoding.html [ Failure ]
-
 # fast/viewport Unexpected text-only failures
 fast/viewport/viewport-legacy-handheldfriendly.html [ Failure ]
 fast/viewport/viewport-legacy-mobileoptimized-2.html [ Failure ]

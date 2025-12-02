@@ -125,10 +125,6 @@ TargetListing RemoteInspector::listingForInspectionTarget(const RemoteInspection
     if (!target.allowsInspectionByPolicy())
         return nullptr;
 
-    // FIXME: Support remote debugging of a ServiceWorker.
-    if (target.type() == RemoteInspectionTarget::Type::ServiceWorker)
-        return nullptr;
-
     TargetListing targetListing = JSON::Object::create();
 
     targetListing->setString("name"_s, target.name());

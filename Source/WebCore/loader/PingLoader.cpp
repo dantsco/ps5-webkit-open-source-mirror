@@ -133,6 +133,8 @@ void PingLoader::sendPing(LocalFrame& frame, const URL& pingURL, const URL& dest
 #endif
 
     auto& document = *frame.document();
+    if (!document.contentSecurityPolicy()->allowConnectToSource(pingURL))
+        return;
     document.contentSecurityPolicy()->upgradeInsecureRequestIfNeeded(request, ContentSecurityPolicy::InsecureRequestType::Load);
 
     request.setHTTPMethod("POST"_s);

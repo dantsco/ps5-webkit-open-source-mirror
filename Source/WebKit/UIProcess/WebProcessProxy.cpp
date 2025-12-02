@@ -2577,6 +2577,34 @@ TextStream& operator<<(TextStream& ts, const WebProcessProxy& process)
     return ts;
 }
 
+
+#if ENABLE(REMOTE_INSPECTOR) && ENABLE(SERVICE_WORKER)
+void WebProcessProxy::createServiceWorkerDebuggable(WebCore::ServiceWorkerIdentifier identifier, URL&& url)
+{
+    MESSAGE_CHECK_URL(url);
+    RELEASE_LOG(Inspector, "WebProcessProxy::createServiceWorkerDebuggable");
+    Ref serviceWorkerDebuggableProxy = ServiceWorkerDebuggableProxy::create(url.string(), identifier, *this);
+    m_serviceWorkerDebuggableProxies.add(identifier, serviceWorkerDebuggableProxy);
+    serviceWorkerDebuggableProxy->init();
+    serviceWorkerDebuggableProxy->setInspectable(true);
+}
+void WebProcessProxy::deleteServiceWorkerDebuggable(WebCore::ServiceWorkerIdentifier identifier)
+{
+    RELEASE_LOG(Inspector, "WebProcessProxy::deleteServiceWorkerDebuggable");
+    m_serviceWorkerDebuggableProxies.remove(identifier);
+}
+
+void WebProcessProxy::sendMessageToInspector(WebCore::ServiceWorkerIdentifier identifier, String&& message)
+{
+    RELEASE_LOG(Inspector, "WebProcessProxy::sendMessageToInspector");
+    if (RefPtr serviceWorkerDebuggableProxy = m_serviceWorkerDebuggableProxies.get(identifier)) {
+        auto targetID = serviceWorkerDebuggableProxy->targetIdentifier();
+        Inspector::RemoteInspector::singleton().sendMessageToRemote(targetID, WTFMove(message));
+    }
+}
+#endif
+
+
 } // namespace WebKit
 
 #undef MESSAGE_CHECK

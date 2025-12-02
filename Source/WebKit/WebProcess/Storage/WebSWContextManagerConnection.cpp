@@ -77,6 +77,10 @@
 #include <WebCore/LegacyPreviewLoaderClient.h>
 #endif
 
+#if ENABLE(REMOTE_INSPECTOR)
+#include "ServiceWorkerDebuggableFrontendChannel.h"
+#endif
+
 namespace WebKit {
 using namespace PAL;
 using namespace WebCore;
@@ -178,9 +182,7 @@ void WebSWContextManagerConnection::installServiceWorker(ServiceWorkerContextDat
             loaderClientForMainFrame->setServiceWorkerPageIdentifier(*contextData.serviceWorkerPageIdentifier);
         pageConfiguration.clientForMainFrame = UniqueRef<WebCore::LocalFrameLoaderClient>(WTFMove(loaderClientForMainFrame));
 
-#if !RELEASE_LOG_DISABLED
-        auto serviceWorkerIdentifier = contextData.serviceWorkerIdentifier;
-#endif
+        [[maybe_unused]] auto serviceWorkerIdentifier = contextData.serviceWorkerIdentifier;
 
         auto lastNavigationWasAppInitiated = contextData.lastNavigationWasAppInitiated;
         auto page = makeUniqueRef<Page>(WTFMove(pageConfiguration));
@@ -193,6 +195,10 @@ void WebSWContextManagerConnection::installServiceWorker(ServiceWorkerContextDat
         std::unique_ptr<WebCore::NotificationClient> notificationClient;
 #if ENABLE(NOTIFICATIONS)
         notificationClient = makeUnique<WebNotificationClient>(nullptr);
+#endif
+
+#if ENABLE(REMOTE_INSPECTOR)
+        WebProcess::singleton().send(Messages::WebProcessProxy::CreateServiceWorkerDebuggable(serviceWorkerIdentifier, contextData.registration.scopeURL));
 #endif
 
         auto serviceWorkerThreadProxy = ServiceWorkerThreadProxy::create(WTFMove(page), WTFMove(contextData), WTFMove(workerData), WTFMove(effectiveUserAgent), workerThreadMode, WebProcess::singleton().cacheStorageProvider(), WTFMove(notificationClient));
@@ -440,6 +446,10 @@ void WebSWContextManagerConnection::setScriptResource(ServiceWorkerIdentifier se
 
 void WebSWContextManagerConnection::workerTerminated(ServiceWorkerIdentifier serviceWorkerIdentifier)
 {
+    RELEASE_LOG(ServiceWorker, "WebSWContextManagerConnection::workerTerminated %" PRIu64, serviceWorkerIdentifier.toUInt64());
+#if ENABLE(REMOTE_INSPECTOR)
+    WebProcess::singleton().send(Messages::WebProcessProxy::DeleteServiceWorkerDebuggable(serviceWorkerIdentifier));
+#endif
     m_connectionToNetworkProcess->send(Messages::WebSWServerToContextConnection::WorkerTerminated(serviceWorkerIdentifier), 0);
 }
 
@@ -549,6 +559,29 @@ void WebSWContextManagerConnection::reportConsoleMessage(WebCore::ServiceWorkerI
 {
     m_connectionToNetworkProcess->send(Messages::WebSWServerToContextConnection::ReportConsoleMessage { identifier, source, level, message, requestIdentifier }, 0);
 }
+
+#if ENABLE(REMOTE_INSPECTOR)
+void WebSWContextManagerConnection::connectToInspector(WebCore::ServiceWorkerIdentifier serviceWorkerIdentifier)
+{
+    Ref channel = ServiceWorkerDebuggableFrontendChannel::create(serviceWorkerIdentifier);
+    m_channels.add(serviceWorkerIdentifier, channel);
+    if (RefPtr serviceWorkerThreadProxy = SWContextManager::singleton().serviceWorkerThreadProxy(serviceWorkerIdentifier))
+        serviceWorkerThreadProxy->inspectorProxy().connectToWorker(channel);
+}
+
+void WebSWContextManagerConnection::disconnectFromInspector(WebCore::ServiceWorkerIdentifier serviceWorkerIdentifier)
+{
+    RefPtr channel = m_channels.take(serviceWorkerIdentifier);
+    if (RefPtr serviceWorkerThreadProxy = SWContextManager::singleton().serviceWorkerThreadProxy(serviceWorkerIdentifier))
+        serviceWorkerThreadProxy->inspectorProxy().disconnectFromWorker(*channel);
+}
+
+void WebSWContextManagerConnection::dispatchMessageFromInspector(WebCore::ServiceWorkerIdentifier identifier, String&& message)
+{
+    if (RefPtr serviceWorkerThreadProxy = SWContextManager::singleton().serviceWorkerThreadProxy(identifier))
+        serviceWorkerThreadProxy->inspectorProxy().sendMessageToWorker(WTFMove(message));
+}
+#endif
 
 } // namespace WebCore
 

@@ -30,6 +30,7 @@
 #include <wtf/Lock.h>
 #include <wtf/Vector.h>
 #include <wtf/WorkQueue.h>
+#include <chrono>
 #include <memory>
 #include <string>
 #include <thread>
