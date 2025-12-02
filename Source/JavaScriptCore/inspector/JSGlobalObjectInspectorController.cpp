@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -49,27 +49,32 @@
 #include "ScriptCallStackFactory.h"
 #include <wtf/StackTrace.h>
 #include <wtf/Stopwatch.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #if ENABLE(REMOTE_INSPECTOR)
 #include "JSGlobalObjectDebuggable.h"
 #include "RemoteInspector.h"
 #endif
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace Inspector {
 
 using namespace JSC;
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(JSGlobalObjectInspectorController);
+
 JSGlobalObjectInspectorController::JSGlobalObjectInspectorController(JSGlobalObject& globalObject)
     : m_globalObject(globalObject)
-    , m_injectedScriptManager(makeUnique<InjectedScriptManager>(*this, InjectedScriptHost::create()))
+    , m_injectedScriptManager(makeUniqueRef<InjectedScriptManager>(*this, InjectedScriptHost::create()))
     , m_executionStopwatch(Stopwatch::create())
     , m_frontendRouter(FrontendRouter::create())
     , m_backendDispatcher(BackendDispatcher::create(m_frontendRouter.copyRef()))
 {
     auto context = jsAgentContext();
 
-    auto consoleAgent = makeUnique<InspectorConsoleAgent>(context);
-    m_consoleAgent = consoleAgent.get();
+    auto consoleAgent = makeUniqueRef<InspectorConsoleAgent>(context);
+    m_consoleAgent = consoleAgent.ptr();
     m_agents.append(WTFMove(consoleAgent));
 
     m_consoleClient = makeUnique<JSGlobalObjectConsoleClient>(m_consoleAgent);
@@ -114,7 +119,7 @@ void JSGlobalObjectInspectorController::connectFrontend(FrontendChannel& fronten
     m_strongGlobalObject.set(m_globalObject.vm(), &m_globalObject);
 
     // FIXME: change this to notify agents which frontend has connected (by id).
-    m_agents.didCreateFrontendAndBackend(nullptr, nullptr);
+    m_agents.didCreateFrontendAndBackend();
 
 #if ENABLE(INSPECTOR_ALTERNATE_DISPATCHERS)
     if (m_augmentingClient)
@@ -165,9 +170,9 @@ void JSGlobalObjectInspectorController::appendAPIBacktrace(ScriptCallStack& call
     for (int i = 0; i < size; ++i) {
         auto demangled = StackTraceSymbolResolver::demangle(stack[i]);
         if (demangled)
-            callStack.append(ScriptCallFrame(String::fromLatin1(demangled->demangledName() ? demangled->demangledName() : demangled->mangledName()), "[native code]"_s, noSourceID, 0, 0));
+            callStack.append(ScriptCallFrame(String::fromLatin1(demangled->demangledName() ? demangled->demangledName() : demangled->mangledName()), "[native code]"_s, noSourceID, { }));
         else
-            callStack.append(ScriptCallFrame("?"_s, "[native code]"_s, noSourceID, 0, 0));
+            callStack.append(ScriptCallFrame("?"_s, "[native code]"_s, noSourceID, { }));
     }
 }
 
@@ -239,7 +244,7 @@ void JSGlobalObjectInspectorController::frontendInitialized()
 
 #if ENABLE(REMOTE_INSPECTOR)
     if (m_isAutomaticInspection)
-        m_globalObject.inspectorDebuggable().unpauseForInitializedInspector();
+        m_globalObject.inspectorDebuggable().unpauseForResolvedAutomaticInspection();
 #endif
 }
 
@@ -260,10 +265,10 @@ VM& JSGlobalObjectInspectorController::vm()
 }
 
 #if ENABLE(INSPECTOR_ALTERNATE_DISPATCHERS)
-void JSGlobalObjectInspectorController::registerAlternateAgent(std::unique_ptr<InspectorAgentBase> agent)
+void JSGlobalObjectInspectorController::registerAlternateAgent(UniqueRef<InspectorAgentBase>&& agent)
 {
     // FIXME: change this to notify agents which frontend has connected (by id).
-    agent->didCreateFrontendAndBackend(nullptr, nullptr);
+    agent->didCreateFrontendAndBackend();
 
     m_agents.append(WTFMove(agent));
 }
@@ -273,8 +278,8 @@ InspectorAgent& JSGlobalObjectInspectorController::ensureInspectorAgent()
 {
     if (!m_inspectorAgent) {
         auto context = jsAgentContext();
-        auto inspectorAgent = makeUnique<InspectorAgent>(context);
-        m_inspectorAgent = inspectorAgent.get();
+        auto inspectorAgent = makeUniqueRef<InspectorAgent>(context);
+        m_inspectorAgent = inspectorAgent.ptr();
         m_agents.append(WTFMove(inspectorAgent));
     }
     return *m_inspectorAgent;
@@ -284,8 +289,8 @@ InspectorDebuggerAgent& JSGlobalObjectInspectorController::ensureDebuggerAgent()
 {
     if (!m_debuggerAgent) {
         auto context = jsAgentContext();
-        auto debuggerAgent = makeUnique<JSGlobalObjectDebuggerAgent>(context, m_consoleAgent);
-        m_debuggerAgent = debuggerAgent.get();
+        auto debuggerAgent = makeUniqueRef<JSGlobalObjectDebuggerAgent>(context, m_consoleAgent);
+        m_debuggerAgent = debuggerAgent.ptr();
         m_consoleClient->setDebuggerAgent(m_debuggerAgent);
         m_agents.append(WTFMove(debuggerAgent));
     }
@@ -296,9 +301,9 @@ JSAgentContext JSGlobalObjectInspectorController::jsAgentContext()
 {
     AgentContext baseContext = {
         *this,
-        *m_injectedScriptManager,
+        m_injectedScriptManager,
         m_frontendRouter.get(),
-        m_backendDispatcher.get()
+        m_backendDispatcher
     };
 
     JSAgentContext context = {
@@ -322,20 +327,22 @@ void JSGlobalObjectInspectorController::createLazyAgents()
 
     ensureInspectorAgent();
 
-    m_agents.append(makeUnique<JSGlobalObjectRuntimeAgent>(context));
+    m_agents.append(makeUniqueRef<JSGlobalObjectRuntimeAgent>(context));
 
     ensureDebuggerAgent();
 
-    auto scriptProfilerAgentPtr = makeUnique<InspectorScriptProfilerAgent>(context);
-    m_consoleClient->setPersistentScriptProfilerAgent(scriptProfilerAgentPtr.get());
-    m_agents.append(WTFMove(scriptProfilerAgentPtr));
+    auto scriptProfilerAgent = makeUniqueRef<InspectorScriptProfilerAgent>(context);
+    m_consoleClient->setPersistentScriptProfilerAgent(scriptProfilerAgent.ptr());
+    m_agents.append(WTFMove(scriptProfilerAgent));
 
-    auto heapAgent = makeUnique<InspectorHeapAgent>(context);
+    auto heapAgent = makeUniqueRef<InspectorHeapAgent>(context);
     if (m_consoleAgent)
-        m_consoleAgent->setHeapAgent(heapAgent.get());
+        m_consoleAgent->setHeapAgent(heapAgent.ptr());
     m_agents.append(WTFMove(heapAgent));
 
-    m_agents.append(makeUnique<JSGlobalObjectAuditAgent>(context));
+    m_agents.append(makeUniqueRef<JSGlobalObjectAuditAgent>(context));
 }
 
 } // namespace Inspector
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

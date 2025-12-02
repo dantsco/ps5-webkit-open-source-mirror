@@ -29,86 +29,400 @@
 #include "CatchScope.h"
 #include "Debugger.h"
 #include "DeferTermination.h"
+#include "GlobalObjectMethodTable.h"
+#include "JSGenerator.h"
 #include "JSGlobalObject.h"
 #include "JSObjectInlines.h"
+#include "JSPromise.h"
+#include "JSPromisePrototype.h"
+#include "JSPromiseReaction.h"
 #include "Microtask.h"
-#include "StrongInlines.h"
-#include "VMTrapsInlines.h"
+#include "ObjectConstructor.h"
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
-class JSMicrotask final : public Microtask {
-public:
-    static constexpr unsigned maxArguments = 4;
-    JSMicrotask(VM& vm, JSValue job, JSValue argument0, JSValue argument1, JSValue argument2, JSValue argument3)
-    {
-        m_job.set(vm, job);
-        if (argument0 && !argument0.isUndefined())
-            m_arguments[0].set(vm, argument0);
-        if (argument1 && !argument1.isUndefined())
-            m_arguments[1].set(vm, argument1);
-        if (argument2 && !argument2.isUndefined())
-            m_arguments[2].set(vm, argument2);
-        if (argument3 && !argument3.isUndefined())
-            m_arguments[3].set(vm, argument3);
-    }
-
-private:
-    void run(JSGlobalObject*) final;
-
-    Strong<Unknown> m_job;
-    Strong<Unknown> m_arguments[maxArguments];
-};
-
-Ref<Microtask> createJSMicrotask(VM& vm, JSValue job, JSValue argument0, JSValue argument1, JSValue argument2, JSValue argument3)
+static ALWAYS_INLINE JSCell* dynamicCastToCell(JSValue value)
 {
-    return adoptRef(*new JSMicrotask(vm, job, argument0, argument1, argument2, argument3));
+    if (value.isCell())
+        return value.asCell();
+    return nullptr;
 }
 
-void runJSMicrotask(JSGlobalObject* globalObject, MicrotaskIdentifier identifier, JSValue job, JSValue argument0, JSValue argument1, JSValue argument2, JSValue argument3)
+static void promiseResolveThenableJobFastSlow(JSGlobalObject* globalObject, JSPromise* promise, JSPromise* promiseToResolve)
 {
     VM& vm = globalObject->vm();
-
     auto scope = DECLARE_CATCH_SCOPE(vm);
 
-    // If termination is issued, do not run microtasks. Otherwise, microtask should not care about exceptions.
-    if (UNLIKELY(!scope.clearExceptionExceptTermination()))
+    JSObject* constructor = promiseSpeciesConstructor(globalObject, promise);
+    if (scope.exception()) [[unlikely]]
         return;
 
-    auto handlerCallData = JSC::getCallData(job);
-    if (UNLIKELY(!scope.clearExceptionExceptTermination()))
+    auto [resolve, reject] = promiseToResolve->createResolvingFunctions(vm, globalObject);
+
+    auto capability = JSPromise::createNewPromiseCapability(globalObject, constructor);
+    if (!scope.exception()) [[likely]] {
+        promise->performPromiseThen(vm, globalObject, resolve, reject, capability, jsUndefined());
         return;
-    ASSERT(handlerCallData.type != CallData::Type::None);
+    }
 
-    MarkedArgumentBuffer handlerArguments;
-    handlerArguments.append(!argument0 ? jsUndefined() : argument0);
-    handlerArguments.append(!argument1 ? jsUndefined() : argument1);
-    handlerArguments.append(!argument2 ? jsUndefined() : argument2);
-    handlerArguments.append(!argument3 ? jsUndefined() : argument3);
-    if (UNLIKELY(handlerArguments.hasOverflowed()))
+    JSValue error = scope.exception()->value();
+    if (!scope.clearExceptionExceptTermination()) [[unlikely]]
         return;
 
-    if (UNLIKELY(globalObject->hasDebugger())) {
-        DeferTerminationForAWhile deferTerminationForAWhile(vm);
-        globalObject->debugger()->willRunMicrotask(globalObject, identifier);
-        scope.clearException();
-    }
-
-    if (LIKELY(!vm.hasPendingTerminationException())) {
-        profiledCall(globalObject, ProfilingReason::Microtask, job, handlerCallData, jsUndefined(), handlerArguments);
-        scope.clearExceptionExceptTermination();
-    }
-
-    if (UNLIKELY(globalObject->hasDebugger())) {
-        DeferTerminationForAWhile deferTerminationForAWhile(vm);
-        globalObject->debugger()->didRunMicrotask(globalObject, identifier);
-        scope.clearException();
-    }
+    MarkedArgumentBuffer arguments;
+    arguments.append(error);
+    ASSERT(!arguments.hasOverflowed());
+    auto callData = JSC::getCallDataInline(reject);
+    call(globalObject, reject, callData, jsUndefined(), arguments);
+    EXCEPTION_ASSERT(scope.exception() || true);
 }
 
-void JSMicrotask::run(JSGlobalObject* globalObject)
+static void promiseResolveThenableJobWithoutPromiseFastSlow(JSGlobalObject* globalObject, JSPromise* promise, JSValue onFulfilled, JSValue onRejected, JSValue context)
 {
-    runJSMicrotask(globalObject, identifier(), m_job.get(), m_arguments[0].get(), m_arguments[1].get(), m_arguments[2].get(), m_arguments[3].get());
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_CATCH_SCOPE(vm);
+
+    JSObject* constructor = promiseSpeciesConstructor(globalObject, promise);
+    if (scope.exception()) [[unlikely]]
+        return;
+
+    auto [resolve, reject] = JSPromise::createResolvingFunctionsWithoutPromise(vm, globalObject, onFulfilled, onRejected, context);
+
+    auto capability = JSPromise::createNewPromiseCapability(globalObject, constructor);
+    if (!scope.exception()) [[likely]] {
+        promise->performPromiseThen(vm, globalObject, resolve, reject, capability, jsUndefined());
+        return;
+    }
+
+    JSValue error = scope.exception()->value();
+    if (!scope.clearExceptionExceptTermination()) [[unlikely]]
+        return;
+
+    MarkedArgumentBuffer arguments;
+    arguments.append(error);
+    ASSERT(!arguments.hasOverflowed());
+    auto callData = JSC::getCallDataInline(reject);
+    call(globalObject, reject, callData, jsUndefined(), arguments);
+    EXCEPTION_ASSERT(scope.exception() || true);
+}
+
+static void promiseResolveThenableJobWithInternalMicrotaskFastSlow(JSGlobalObject* globalObject, JSPromise* promise, InternalMicrotask task, JSValue context)
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_CATCH_SCOPE(vm);
+
+    JSObject* constructor = promiseSpeciesConstructor(globalObject, promise);
+    if (scope.exception()) [[unlikely]]
+        return;
+
+    auto [resolve, reject] = JSPromise::createResolvingFunctionsWithInternalMicrotask(vm, globalObject, task, context);
+
+    auto capability = JSPromise::createNewPromiseCapability(globalObject, constructor);
+    if (!scope.exception()) [[likely]] {
+        promise->performPromiseThen(vm, globalObject, resolve, reject, capability, jsUndefined());
+        return;
+    }
+
+    JSValue error = scope.exception()->value();
+    if (!scope.clearExceptionExceptTermination()) [[unlikely]]
+        return;
+
+    MarkedArgumentBuffer arguments;
+    arguments.append(error);
+    ASSERT(!arguments.hasOverflowed());
+    auto callData = JSC::getCallDataInline(reject);
+    call(globalObject, reject, callData, jsUndefined(), arguments);
+    EXCEPTION_ASSERT(scope.exception() || true);
+}
+
+static void promiseResolveThenableJob(JSGlobalObject* globalObject, JSValue promise, JSValue then, JSValue resolve, JSValue reject)
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_CATCH_SCOPE(vm);
+
+    {
+        MarkedArgumentBuffer arguments;
+        arguments.append(resolve);
+        arguments.append(reject);
+        ASSERT(!arguments.hasOverflowed());
+
+        callMicrotask(globalObject, then, promise, dynamicCastToCell(then), arguments, "|then| is not a function"_s);
+        if (!scope.exception()) [[likely]]
+            return;
+    }
+
+    JSValue error = scope.exception()->value();
+    if (!scope.clearExceptionExceptTermination()) [[unlikely]]
+        return;
+
+    MarkedArgumentBuffer arguments;
+    arguments.append(error);
+    ASSERT(!arguments.hasOverflowed());
+    call(globalObject, reject, jsUndefined(), arguments, "|reject| is not a function"_s);
+    EXCEPTION_ASSERT(scope.exception() || true);
+}
+
+void runInternalMicrotask(JSGlobalObject* globalObject, InternalMicrotask task, std::span<const JSValue, maxMicrotaskArguments> arguments)
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    switch (task) {
+    case InternalMicrotask::PromiseResolveThenableJobFast: {
+        auto* promise = jsCast<JSPromise*>(arguments[0]);
+        auto* promiseToResolve = jsCast<JSPromise*>(arguments[1]);
+
+        if (!promiseSpeciesWatchpointIsValid(vm, promise)) [[unlikely]]
+            RELEASE_AND_RETURN(scope, promiseResolveThenableJobFastSlow(globalObject, promise, promiseToResolve));
+
+        scope.release();
+        promise->performPromiseThenWithInternalMicrotask(vm, globalObject, InternalMicrotask::PromiseResolveWithoutHandlerJob, promiseToResolve, jsUndefined());
+        return;
+    }
+
+    case InternalMicrotask::PromiseResolveThenableJobWithoutPromiseFast: {
+        auto* promise = jsCast<JSPromise*>(arguments[0]);
+        JSValue onFulfilled = arguments[1];
+        JSValue onRejected = arguments[2];
+        JSValue context = arguments[3];
+
+        if (!promiseSpeciesWatchpointIsValid(vm, promise)) [[unlikely]]
+            RELEASE_AND_RETURN(scope, promiseResolveThenableJobWithoutPromiseFastSlow(globalObject, promise, onFulfilled, onRejected, context));
+
+        switch (promise->status()) {
+        case JSPromise::Status::Pending: {
+            auto* reaction = JSPromiseReaction::create(vm, jsUndefined(), onFulfilled, onRejected, context, jsDynamicCast<JSPromiseReaction*>(promise->reactionsOrResult()));
+            promise->setReactionsOrResult(vm, reaction);
+            break;
+        }
+        case JSPromise::Status::Rejected: {
+            if (!promise->isHandled())
+                globalObject->globalObjectMethodTable()->promiseRejectionTracker(globalObject, promise, JSPromiseRejectionOperation::Handle);
+            JSPromise::rejectWithoutPromise(globalObject, promise->reactionsOrResult(), onFulfilled, onRejected, context);
+            break;
+        }
+        case JSPromise::Status::Fulfilled: {
+            JSPromise::fulfillWithoutPromise(globalObject, promise->reactionsOrResult(), onFulfilled, onRejected, context);
+            break;
+        }
+        }
+
+        promise->markAsHandled();
+        return;
+    }
+
+    case InternalMicrotask::PromiseResolveThenableJobWithInternalMicrotaskFast: {
+        auto* promise = jsCast<JSPromise*>(arguments[0]);
+        auto task = static_cast<InternalMicrotask>(arguments[1].asInt32());
+        JSValue context = arguments[2];
+
+        if (!promiseSpeciesWatchpointIsValid(vm, promise)) [[unlikely]]
+            RELEASE_AND_RETURN(scope, promiseResolveThenableJobWithInternalMicrotaskFastSlow(globalObject, promise, task, context));
+
+        switch (promise->status()) {
+        case JSPromise::Status::Pending: {
+            JSValue encodedTask = jsNumber(static_cast<int32_t>(task));
+            auto* reaction = JSPromiseReaction::create(vm, jsUndefined(), encodedTask, encodedTask, context, jsDynamicCast<JSPromiseReaction*>(promise->reactionsOrResult()));
+            promise->setReactionsOrResult(vm, reaction);
+            break;
+        }
+        case JSPromise::Status::Rejected: {
+            if (!promise->isHandled())
+                globalObject->globalObjectMethodTable()->promiseRejectionTracker(globalObject, promise, JSPromiseRejectionOperation::Handle);
+            JSPromise::rejectWithInternalMicrotask(globalObject, promise->reactionsOrResult(), task, context);
+            break;
+        }
+        case JSPromise::Status::Fulfilled: {
+            JSPromise::fulfillWithInternalMicrotask(globalObject, promise->reactionsOrResult(), task, context);
+            break;
+        }
+        }
+
+        promise->markAsHandled();
+        return;
+    }
+
+    case InternalMicrotask::PromiseResolveThenableJob: {
+        JSValue promise = arguments[0];
+        JSValue then = arguments[1];
+        JSValue resolve = arguments[2];
+        JSValue reject = arguments[3];
+        RELEASE_AND_RETURN(scope, promiseResolveThenableJob(globalObject, promise, then, resolve, reject));
+    }
+
+    case InternalMicrotask::PromiseFirstResolveWithoutHandlerJob:
+        if (jsCast<JSPromise*>(arguments[0])->status() != JSPromise::Status::Pending)
+            return;
+        [[fallthrough]];
+    case InternalMicrotask::PromiseResolveWithoutHandlerJob: {
+        auto* promise = jsCast<JSPromise*>(arguments[0]);
+        JSValue resolution = arguments[1];
+        switch (static_cast<JSPromise::Status>(arguments[2].asInt32())) {
+        case JSPromise::Status::Pending: {
+            RELEASE_ASSERT_NOT_REACHED();
+            break;
+        }
+        case JSPromise::Status::Fulfilled: {
+            scope.release();
+            promise->resolvePromise(globalObject, resolution);
+            break;
+        }
+        case JSPromise::Status::Rejected: {
+            scope.release();
+            promise->rejectPromise(vm, globalObject, resolution);
+            break;
+        }
+        }
+        return;
+    }
+
+    case InternalMicrotask::PromiseReactionJob: {
+        JSValue promiseOrCapability = arguments[0];
+        JSValue handler = arguments[1];
+        JSValue context = arguments[3];
+
+        ASSERT(!promiseOrCapability.isUndefinedOrNull());
+        JSValue result;
+        JSValue error;
+        {
+            auto catchScope = DECLARE_CATCH_SCOPE(vm);
+            if (context.isUndefinedOrNull())
+                result = callMicrotask(globalObject, handler, jsUndefined(), dynamicCastToCell(handler), ArgList { std::bit_cast<EncodedJSValue*>(arguments.data() + 2), 1 }, "handler is not a function"_s);
+            else
+                result = callMicrotask(globalObject, handler, jsUndefined(), dynamicCastToCell(context), ArgList { std::bit_cast<EncodedJSValue*>(arguments.data() + 2), 2 }, "handler is not a function"_s);
+
+            if (catchScope.exception()) {
+                error = catchScope.exception()->value();
+                if (!catchScope.clearExceptionExceptTermination()) [[unlikely]] {
+                    scope.release();
+                    return;
+                }
+            }
+        }
+
+        if (error) {
+            if (auto* promise = jsDynamicCast<JSPromise*>(promiseOrCapability))
+                RELEASE_AND_RETURN(scope, promise->rejectPromise(vm, globalObject, error));
+
+            JSValue reject = promiseOrCapability.get(globalObject, vm.propertyNames->reject);
+            RETURN_IF_EXCEPTION(scope, void());
+
+            MarkedArgumentBuffer arguments;
+            arguments.append(error);
+            ASSERT(!arguments.hasOverflowed());
+            scope.release();
+            call(globalObject, reject, jsUndefined(), arguments, "reject is not a function"_s);
+            return;
+        }
+
+        if (auto* promise = jsDynamicCast<JSPromise*>(promiseOrCapability))
+            RELEASE_AND_RETURN(scope, promise->resolvePromise(globalObject, result));
+
+        JSValue resolve = promiseOrCapability.get(globalObject, vm.propertyNames->resolve);
+        RETURN_IF_EXCEPTION(scope, void());
+
+        MarkedArgumentBuffer arguments;
+        arguments.append(result);
+        ASSERT(!arguments.hasOverflowed());
+        scope.release();
+        call(globalObject, resolve, jsUndefined(), arguments, "resolve is not a function"_s);
+        return;
+    }
+
+    case InternalMicrotask::PromiseReactionJobWithoutPromise: {
+        JSValue handler = arguments[0];
+        JSValue context = arguments[2];
+        if (context.isUndefinedOrNull()) {
+            scope.release();
+            callMicrotask(globalObject, handler, jsUndefined(), dynamicCastToCell(handler), ArgList { std::bit_cast<EncodedJSValue*>(arguments.data() + 1), 1 }, "handler is not a function"_s);
+        } else {
+            scope.release();
+            callMicrotask(globalObject, handler, jsUndefined(), dynamicCastToCell(context), ArgList { std::bit_cast<EncodedJSValue*>(arguments.data() + 1), 2 }, "handler is not a function"_s);
+        }
+        return;
+    }
+
+    case InternalMicrotask::InvokeFunctionJob: {
+        JSValue handler = arguments[0];
+        scope.release();
+        callMicrotask(globalObject, handler, jsUndefined(), nullptr, ArgList { }, "handler is not a function"_s);
+        return;
+    }
+
+    case InternalMicrotask::AsyncFunctionResume: {
+        JSValue resolution = arguments[1];
+        auto* generator = jsCast<JSGenerator*>(arguments[3]);
+        JSGenerator::ResumeMode resumeMode = JSGenerator::ResumeMode::NormalMode;
+        switch (static_cast<JSPromise::Status>(arguments[2].asInt32())) {
+        case JSPromise::Status::Pending: {
+            RELEASE_ASSERT_NOT_REACHED();
+            break;
+        }
+        case JSPromise::Status::Rejected: {
+            resumeMode = JSGenerator::ResumeMode::ThrowMode;
+            break;
+        }
+        case JSPromise::Status::Fulfilled: {
+            resumeMode = JSGenerator::ResumeMode::NormalMode;
+            break;
+        }
+        }
+
+        int32_t state = generator->state();
+        generator->setState(static_cast<int32_t>(JSGenerator::State::Executing));
+        JSValue next = generator->next();
+        JSValue thisValue = generator->thisValue();
+        JSValue frame = generator->frame();
+        std::array<EncodedJSValue, 5> args = { {
+            JSValue::encode(generator),
+            JSValue::encode(jsNumber(state)),
+            JSValue::encode(resolution),
+            JSValue::encode(jsNumber(static_cast<int32_t>(resumeMode))),
+            JSValue::encode(frame),
+        } };
+
+        JSValue value;
+        JSValue error;
+        {
+            auto catchScope = DECLARE_CATCH_SCOPE(vm);
+            value = callMicrotask(globalObject, next, thisValue, generator, ArgList { args.data(), args.size() }, "handler is not a function"_s);
+            if (catchScope.exception()) {
+                error = catchScope.exception()->value();
+                if (!catchScope.clearExceptionExceptTermination()) [[unlikely]] {
+                    scope.release();
+                    return;
+                }
+            }
+        }
+
+        if (error) {
+            auto* promise = jsCast<JSPromise*>(generator->context());
+            scope.release();
+            promise->reject(vm, globalObject, error);
+            return;
+        }
+
+        if (generator->state() == static_cast<int32_t>(JSGenerator::State::Executing)) {
+            auto* promise = jsCast<JSPromise*>(generator->context());
+            scope.release();
+            promise->resolve(globalObject, value);
+            return;
+        }
+
+        scope.release();
+        JSPromise::resolveWithInternalMicrotaskForAsyncAwait(globalObject, value, InternalMicrotask::AsyncFunctionResume, generator);
+        return;
+    }
+
+    case InternalMicrotask::Opaque: {
+        RELEASE_ASSERT_NOT_REACHED();
+        return;
+    }
+    }
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

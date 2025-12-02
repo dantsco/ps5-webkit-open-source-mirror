@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,17 +31,18 @@
 #include "SimpleMarkingConstraint.h"
 #include "SuperSampler.h"
 #include <wtf/Function.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC {
 
-MarkingConstraintSet::MarkingConstraintSet(Heap& heap)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MarkingConstraintSet);
+
+MarkingConstraintSet::MarkingConstraintSet(JSC::Heap& heap)
     : m_heap(heap)
 {
 }
 
-MarkingConstraintSet::~MarkingConstraintSet()
-{
-}
+MarkingConstraintSet::~MarkingConstraintSet() = default;
 
 void MarkingConstraintSet::didStartMarking()
 {
@@ -131,9 +132,7 @@ bool MarkingConstraintSet::executeConvergenceImpl(SlotVisitor& visitor)
     // constraints before returning.
     bool isWavefrontAdvancing = this->isWavefrontAdvancing(visitor);
     
-    std::sort(
-        m_ordered.begin(), m_ordered.end(),
-        [&] (MarkingConstraint* a, MarkingConstraint* b) -> bool {
+    std::ranges::sort(m_ordered, [&](auto* a, auto* b) {
             // Remember: return true if a should come before b.
             
             auto volatilityScore = [] (MarkingConstraint* constraint) -> unsigned {

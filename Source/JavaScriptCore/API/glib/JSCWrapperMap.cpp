@@ -64,11 +64,12 @@ void WrapperMap::unwrap(JSValueRef jsValue)
     m_cachedGObjectWrappers.remove(jsValue);
 }
 
-void WrapperMap::registerClass(JSCClass* jscClass)
+JSCClass* WrapperMap::registerClass(GRefPtr<JSCClass>&& jscClass)
 {
-    auto* jsClass = jscClassGetJSClass(jscClass);
-    ASSERT(!m_classMap.contains(jsClass));
-    m_classMap.set(jsClass, jscClass);
+    RefPtr jsClass = jscClassGetJSClass(jscClass.get());
+    auto result = m_classMap.set(jsClass.get(), jscClass);
+    ASSERT(result.isNewEntry);
+    return result.iterator->value.get();
 }
 
 JSCClass* WrapperMap::registeredClass(JSClassRef jsClass) const
@@ -80,7 +81,7 @@ JSObject* WrapperMap::createJSWrapper(JSGlobalContextRef jsContext, JSClassRef j
 {
     ASSERT(toJSGlobalObject(jsContext)->wrapperMap() == this);
     JSGlobalObject* globalObject = toJS(jsContext);
-    VM& vm = globalObject->vm();
+    Ref vm = globalObject->vm();
     JSLockHolder locker(vm);
     auto* object = JSC::JSCallbackObject<JSC::JSAPIWrapperObject>::create(globalObject, globalObject->glibWrapperObjectStructure(), jsClass, nullptr);
     if (wrappedObject) {

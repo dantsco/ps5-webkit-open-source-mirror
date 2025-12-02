@@ -107,7 +107,7 @@ ObjectPropertyConditionSet ObjectPropertyConditionSet::mergedWith(
     Vector<ObjectPropertyCondition, 16> result;
     
     if (!isEmpty())
-        result.append(m_data->begin(), m_data->size());
+        result.append(m_data->span());
     
     for (const ObjectPropertyCondition& newCondition : other) {
         bool foundMatch = false;
@@ -133,6 +133,18 @@ bool ObjectPropertyConditionSet::structuresEnsureValidity() const
     
     for (const ObjectPropertyCondition& condition : *this) {
         if (!condition.structureEnsuresValidity(Concurrency::ConcurrentThread))
+            return false;
+    }
+    return true;
+}
+
+bool ObjectPropertyConditionSet::isStillValid() const
+{
+    if (!isValid())
+        return false;
+
+    for (const ObjectPropertyCondition& condition : *this) {
+        if (!condition.isStillValid(Concurrency::ConcurrentThread))
             return false;
     }
     return true;
@@ -391,15 +403,13 @@ ObjectPropertyConditionSet generateConditionsForIndexedMiss(VM& vm, JSCell* owne
 
 ObjectPropertyConditionSet generateConditionsForPrototypePropertyHit(
     VM& vm, JSCell* owner, JSGlobalObject* globalObject, Structure* headStructure, JSObject* prototype,
-    UniquedStringImpl* uid, PropertyCondition::Kind prototypeConditionKind)
+    UniquedStringImpl* uid)
 {
-    ASSERT(prototypeConditionKind == PropertyCondition::Presence || prototypeConditionKind == PropertyCondition::Equivalence);
-
     return generateConditions(
         globalObject, headStructure, prototype, uid,
         [&](auto& conditions, JSObject* object, Structure* structure) -> bool {
             PropertyCondition::Kind kind =
-                object == prototype ? prototypeConditionKind : PropertyCondition::Absence;
+                object == prototype ? PropertyCondition::Presence : PropertyCondition::Absence;
             ObjectPropertyCondition result =
                 generateCondition(vm, owner, object, structure, uid, kind, Concurrency::MainThread);
             if (!result)
@@ -504,8 +514,22 @@ ObjectPropertyConditionSet generateConditionsForPrototypeEquivalenceConcurrently
         });
 }
 
-ObjectPropertyConditionSet generateConditionsForPropertyMissConcurrently(
-    VM& vm, JSGlobalObject* globalObject, Structure* headStructure, UniquedStringImpl* uid)
+ObjectPropertyConditionSet generateConditionsForPrototypePropertyHitConcurrently(VM& vm, JSGlobalObject* globalObject, Structure* headStructure, JSObject* prototype, UniquedStringImpl* uid)
+{
+    return generateConditions(
+        globalObject, headStructure, prototype, uid,
+        [&](auto& conditions, JSObject* object, Structure* structure) -> bool {
+            PropertyCondition::Kind kind = object == prototype ? PropertyCondition::Presence : PropertyCondition::Absence;
+            ObjectPropertyCondition result =
+                generateCondition(vm, nullptr, object, structure, uid, kind, Concurrency::ConcurrentThread);
+            if (!result)
+                return false;
+            conditions.append(result);
+            return true;
+        });
+}
+
+ObjectPropertyConditionSet generateConditionsForPropertyMissConcurrently(VM& vm, JSGlobalObject* globalObject, Structure* headStructure, UniquedStringImpl* uid)
 {
     return generateConditions(
         globalObject, headStructure, nullptr, uid,
@@ -555,8 +579,19 @@ static std::optional<PrototypeChainCachingStatus> prepareChainForCaching(JSGloba
                 return std::nullopt;
 
             ASSERT(structure->isObject());
-            if (structure->hasBeenFlattenedBefore())
+            if (structure->hasBeenFlattenedBefore()) {
+                if (structure->isUncacheableDictionary())
+                    return std::nullopt;
+                if (!structure->propertyAccessesAreCacheable())
+                    return std::nullopt;
+                if (structure->isProxy())
+                    return std::nullopt;
+                if (current == target) {
+                    found = true;
+                    break;
+                }
                 return std::nullopt;
+            }
 
             structure->flattenDictionaryStructure(vm, asObject(current));
             flattenedDictionary = true;

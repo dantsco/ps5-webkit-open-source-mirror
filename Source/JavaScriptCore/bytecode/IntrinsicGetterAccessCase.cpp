@@ -45,19 +45,13 @@ Ref<AccessCase> IntrinsicGetterAccessCase::create(VM& vm, JSCell* owner, Cacheab
     return adoptRef(*new IntrinsicGetterAccessCase(vm, owner, identifier, offset, structure, conditionSet, intrinsicFunction, WTFMove(prototypeAccessChain)));
 }
 
-Ref<AccessCase> IntrinsicGetterAccessCase::cloneImpl() const
-{
-    auto result = adoptRef(*new IntrinsicGetterAccessCase(*this));
-    result->resetState();
-    return result;
-}
-
 bool IntrinsicGetterAccessCase::doesCalls() const
 {
     switch (intrinsic()) {
     case TypedArrayByteOffsetIntrinsic:
     case TypedArrayByteLengthIntrinsic:
     case TypedArrayLengthIntrinsic:
+    case DataViewByteLengthIntrinsic:
         return isResizableOrGrowableSharedTypedArrayIncludingDataView(structure()->classInfoForCells());
     default:
         return false;

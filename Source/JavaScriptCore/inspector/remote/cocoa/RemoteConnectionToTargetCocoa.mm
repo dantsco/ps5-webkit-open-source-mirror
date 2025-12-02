@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2019 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2013-2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,6 +33,7 @@
 #import "RemoteInspectionTarget.h"
 #import "RemoteInspector.h"
 #import <dispatch/dispatch.h>
+#import <wtf/NeverDestroyed.h>
 #import <wtf/RunLoop.h>
 
 #if USE(WEB_THREAD)
@@ -42,13 +43,18 @@
 namespace Inspector {
 
 static Lock rwiQueueMutex;
-static CFRunLoopSourceRef rwiRunLoopSource;
 static RemoteTargetQueue* rwiQueue;
+
+static RetainPtr<CFRunLoopSourceRef>& rwiRunLoopSource()
+{
+    static NeverDestroyed<RetainPtr<CFRunLoopSourceRef>> source;
+    return source.get();
+}
 
 static void RemoteTargetHandleRunSourceGlobal(void*)
 {
     ASSERT(CFRunLoopGetCurrent() == CFRunLoopGetMain());
-    ASSERT(rwiRunLoopSource);
+    ASSERT(rwiRunLoopSource());
     ASSERT(rwiQueue);
 
     RemoteTargetQueue queueCopy;
@@ -63,7 +69,7 @@ static void RemoteTargetHandleRunSourceGlobal(void*)
 
 static void RemoteTargetQueueTaskOnGlobalQueue(Function<void ()>&& function)
 {
-    ASSERT(rwiRunLoopSource);
+    ASSERT(rwiRunLoopSource());
     ASSERT(rwiQueue);
 
     {
@@ -71,8 +77,8 @@ static void RemoteTargetQueueTaskOnGlobalQueue(Function<void ()>&& function)
         rwiQueue->append(WTFMove(function));
     }
 
-    CFRunLoopSourceSignal(rwiRunLoopSource);
-    CFRunLoopWakeUp(CFRunLoopGetMain());
+    CFRunLoopSourceSignal(rwiRunLoopSource().get());
+    CFRunLoopWakeUp(RetainPtr { CFRunLoopGetMain() }.get());
 }
 
 static void RemoteTargetInitializeGlobalQueue()
@@ -82,13 +88,14 @@ static void RemoteTargetInitializeGlobalQueue()
         rwiQueue = new RemoteTargetQueue;
 
         CFRunLoopSourceContext runLoopSourceContext = { 0, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, RemoteTargetHandleRunSourceGlobal };
-        rwiRunLoopSource = CFRunLoopSourceCreate(kCFAllocatorDefault, 1, &runLoopSourceContext);
+        rwiRunLoopSource() = adoptCF(CFRunLoopSourceCreate(kCFAllocatorDefault, 1, &runLoopSourceContext));
 
         // Add to the default run loop mode for default handling, and the JSContext remote inspector run loop mode when paused.
-        CFRunLoopAddSource(CFRunLoopGetMain(), rwiRunLoopSource, kCFRunLoopDefaultMode);
-        auto mode = JSGlobalObjectDebugger::runLoopMode();
-        if (mode != DefaultRunLoopMode)
-            CFRunLoopAddSource(CFRunLoopGetMain(), rwiRunLoopSource, mode);
+        RetainPtr mainRunLoop = CFRunLoopGetMain();
+        CFRunLoopAddSource(mainRunLoop.get(), rwiRunLoopSource().get(), kCFRunLoopDefaultMode);
+        RetainPtr mode = JSGlobalObjectDebugger::runLoopModeSingleton();
+        if (mode.get() != DefaultRunLoopMode)
+            CFRunLoopAddSource(mainRunLoop.get(), rwiRunLoopSource().get(), mode.get());
     });
 }
 
@@ -122,12 +129,18 @@ RemoteConnectionToTarget::~RemoteConnectionToTarget()
 
 std::optional<TargetID> RemoteConnectionToTarget::targetIdentifier() const
 {
-    return m_target ? std::optional<TargetID>(m_target->targetIdentifier()) : std::nullopt;
+    RefPtr target = m_target.get();
+    return target ? std::optional<TargetID>(target->targetIdentifier()) : std::nullopt;
 }
 
 NSString *RemoteConnectionToTarget::connectionIdentifier() const
 {
     return adoptNS([m_connectionIdentifier copy]).autorelease();
+}
+
+RetainPtr<NSString> RemoteConnectionToTarget::protectedConnectionIdentifier() const
+{
+    return connectionIdentifier();
 }
 
 NSString *RemoteConnectionToTarget::destination() const
@@ -159,30 +172,34 @@ bool RemoteConnectionToTarget::setup(bool isAutomaticInspection, bool automatica
 {
     Locker locker { m_targetMutex };
 
-    if (!m_target)
+    RefPtr target = m_target.get();
+    if (!target)
         return false;
 
     auto targetIdentifier = this->targetIdentifier().value_or(0);
 
-    dispatchAsyncOnTarget([this, targetIdentifier, isAutomaticInspection, automaticallyPause, strongThis = Ref { *this }]() {
-        Locker locker { m_targetMutex };
-
-        if (!m_target || !m_target->remoteControlAllowed()) {
-            RemoteInspector::singleton().setupFailed(targetIdentifier);
-            m_target = nullptr;
-        } else if (is<RemoteInspectionTarget>(m_target)) {
-            auto castedTarget = downcast<RemoteInspectionTarget>(m_target);
-            castedTarget->connect(*this, isAutomaticInspection, automaticallyPause);
-            m_connected = true;
-
-            RemoteInspector::singleton().updateTargetListing(targetIdentifier);
-        } else if (is<RemoteAutomationTarget>(m_target)) {
-            auto castedTarget = downcast<RemoteAutomationTarget>(m_target);
-            castedTarget->connect(*this);
-            m_connected = true;
-
-            RemoteInspector::singleton().updateTargetListing(targetIdentifier);
+    dispatchAsyncOnTarget([this, targetIdentifier, isAutomaticInspection, automaticallyPause, protectedThis = Ref { *this }]() {
+        RefPtr<RemoteControllableTarget> target;
+        {
+            Locker locker { m_targetMutex };
+            target = m_target.get();
         }
+
+        if (!target || !target->remoteControlAllowed()) {
+            RemoteInspector::singleton().setupFailed(targetIdentifier);
+            Locker locker { m_targetMutex };
+            m_target = nullptr;
+            return;
+        }
+
+        if (RefPtr inspectionTarget = dynamicDowncast<RemoteInspectionTarget>(target.get()))
+            inspectionTarget->connect(*this, isAutomaticInspection, automaticallyPause);
+        else if (RefPtr automationTarget = dynamicDowncast<RemoteAutomationTarget>(target.get()))
+            automationTarget->connect(*this);
+
+        m_connectionState = ConnectionState::Connected;
+        RemoteInspector::singleton().updateTargetListing(targetIdentifier);
+        RemoteInspector::singleton().setupCompleted(targetIdentifier);
     });
 
     return true;
@@ -191,56 +208,73 @@ bool RemoteConnectionToTarget::setup(bool isAutomaticInspection, bool automatica
 void RemoteConnectionToTarget::targetClosed()
 {
     Locker locker { m_targetMutex };
-
+    m_connectionState = ConnectionState::Closed;
     m_target = nullptr;
 }
 
 void RemoteConnectionToTarget::close()
 {
-    auto targetIdentifier = m_target ? m_target->targetIdentifier() : 0;
+    Locker locker { m_targetMutex };
+    RefPtr target = m_target.get();
+    auto targetIdentifier = target ? target->targetIdentifier() : 0;
 
-    if (auto* automationTarget = dynamicDowncast<RemoteAutomationTarget>(m_target))
+    if (auto* automationTarget = dynamicDowncast<RemoteAutomationTarget>(target.get()))
         automationTarget->setIsPendingTermination();
     
-    dispatchAsyncOnTarget([this, targetIdentifier, strongThis = Ref { *this }]() {
+    dispatchAsyncOnTarget([this, targetIdentifier, protectedThis = Ref { *this }]() {
         Locker locker { m_targetMutex };
-        if (m_target) {
-            if (m_connected)
-                m_target->disconnect(*this);
+        if (RefPtr target = m_target.get()) {
+            if (m_connectionState.exchange(ConnectionState::Closed) == ConnectionState::Connected)
+                target->disconnect(*this);
 
             m_target = nullptr;
-            if (targetIdentifier)
-                RemoteInspector::singleton().updateTargetListing(targetIdentifier);
         }
+
+        if (targetIdentifier)
+            RemoteInspector::singleton().updateTargetListing(targetIdentifier);
     });
 }
 
 void RemoteConnectionToTarget::sendMessageToTarget(NSString *message)
 {
-    dispatchAsyncOnTarget([this, strongMessage = retainPtr(message), strongThis = Ref { *this }]() {
-        RemoteControllableTarget* target = nullptr;
+    if (m_connectionState == ConnectionState::Closed)
+        return;
+
+    dispatchAsyncOnTarget([this, strongMessage = retainPtr(message), protectedThis = Ref { *this }]() {
+        RefPtr<RemoteControllableTarget> target;
         {
             Locker locker { m_targetMutex };
-            if (!m_target)
-                return;
-            target = m_target;
+            target = m_target.get();
         }
-
-        target->dispatchMessageFromRemote(strongMessage.get());
+        if (target)
+            target->dispatchMessageFromRemote(strongMessage.get());
     });
 }
 
 void RemoteConnectionToTarget::sendMessageToFrontend(const String& message)
 {
-    if (!targetIdentifier())
+    if (m_connectionState == ConnectionState::Closed)
         return;
 
-    RemoteInspector::singleton().sendMessageToRemote(targetIdentifier().value(), message);
+    std::optional<TargetID> targetIdentifier;
+    {
+        Locker locker { m_targetMutex };
+        targetIdentifier = this->targetIdentifier();
+    }
+    if (!targetIdentifier)
+        return;
+
+    RemoteInspector::singleton().sendMessageToRemote(targetIdentifier.value(), message);
 }
 
 void RemoteConnectionToTarget::setupRunLoop()
 {
-    CFRunLoopRef targetRunLoop = m_target->targetRunLoop();
+    RetainPtr<CFRunLoopRef> targetRunLoop;
+    {
+        Locker locker { m_targetMutex };
+        RefPtr target = m_target.get();
+        targetRunLoop = target->targetRunLoop();
+    }
     if (!targetRunLoop) {
         RemoteTargetInitializeGlobalQueue();
         return;
@@ -252,9 +286,9 @@ void RemoteConnectionToTarget::setupRunLoop()
     m_runLoopSource = adoptCF(CFRunLoopSourceCreate(kCFAllocatorDefault, 1, &runLoopSourceContext));
 
     CFRunLoopAddSource(m_runLoop.get(), m_runLoopSource.get(), kCFRunLoopDefaultMode);
-    auto mode = JSGlobalObjectDebugger::runLoopMode();
-    if (mode != DefaultRunLoopMode)
-        CFRunLoopAddSource(m_runLoop.get(), m_runLoopSource.get(), mode);
+    RetainPtr mode = JSGlobalObjectDebugger::runLoopModeSingleton();
+    if (mode.get() != DefaultRunLoopMode)
+        CFRunLoopAddSource(m_runLoop.get(), m_runLoopSource.get(), mode.get());
 }
 
 void RemoteConnectionToTarget::teardownRunLoop()
@@ -263,9 +297,9 @@ void RemoteConnectionToTarget::teardownRunLoop()
         return;
 
     CFRunLoopRemoveSource(m_runLoop.get(), m_runLoopSource.get(), kCFRunLoopDefaultMode);
-    auto mode = JSGlobalObjectDebugger::runLoopMode();
-    if (mode != DefaultRunLoopMode)
-        CFRunLoopRemoveSource(m_runLoop.get(), m_runLoopSource.get(), mode);
+    RetainPtr mode = JSGlobalObjectDebugger::runLoopModeSingleton();
+    if (mode.get() != DefaultRunLoopMode)
+        CFRunLoopRemoveSource(m_runLoop.get(), m_runLoopSource.get(), mode.get());
 
     m_runLoop = nullptr;
     m_runLoopSource = nullptr;

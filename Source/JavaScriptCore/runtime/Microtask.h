@@ -26,33 +26,31 @@
 #pragma once
 
 #include <wtf/ObjectIdentifier.h>
-#include <wtf/RefCounted.h>
 
 namespace JSC {
 
-class CallFrame;
-class JSGlobalObject;
+enum class MicrotaskIdentifierType { };
+using MicrotaskIdentifier = ObjectIdentifier<MicrotaskIdentifierType>;
 
-enum MicrotaskIdentifierType { };
-using MicrotaskIdentifier = AtomicObjectIdentifier<MicrotaskIdentifierType>;
+enum class InternalMicrotask : uint16_t {
+    PromiseResolveThenableJobFast = 0,
+    PromiseResolveThenableJobWithoutPromiseFast,
+    PromiseResolveThenableJobWithInternalMicrotaskFast,
 
-class Microtask : public RefCounted<Microtask> {
-public:
-    Microtask()
-        : m_identifier(MicrotaskIdentifier::generate())
-    {
-    }
+    PromiseResolveThenableJob,
 
-    virtual ~Microtask()
-    {
-    }
+    PromiseFirstResolveWithoutHandlerJob,
+    PromiseResolveWithoutHandlerJob,
 
-    MicrotaskIdentifier identifier() const { return m_identifier; }
+    PromiseReactionJob,
+    PromiseReactionJobWithoutPromise,
 
-    virtual void run(JSGlobalObject*) = 0;
+    AsyncFunctionResume,
 
-protected:
-    MicrotaskIdentifier m_identifier;
+    InvokeFunctionJob,
+    Opaque, // Dispatch must handle everything.
 };
+
+constexpr unsigned maxMicrotaskArguments = 4;
 
 } // namespace JSC

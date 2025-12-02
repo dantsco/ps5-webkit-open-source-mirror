@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "JSFunction.h"
+#include <JavaScriptCore/JSFunction.h>
 
 namespace JSC {
 
@@ -38,17 +38,14 @@ public:
     using Base = JSFunction;
     static constexpr unsigned StructureFlags = Base::StructureFlags | HasStaticPropertyTable;
 
-    static JSPromiseConstructor* create(VM&, Structure*, JSPromisePrototype*, GetterSetter* speciesSymbol);
+    static JSPromiseConstructor* create(VM&, Structure*, JSPromisePrototype*);
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
     DECLARE_INFO;
 
 protected:
     JSPromiseConstructor(VM&, FunctionExecutable*, JSGlobalObject*, Structure*);
-    void finishCreation(VM&, JSPromisePrototype*, GetterSetter*);
-
-private:
-    void addOwnInternalSlots(VM&, JSGlobalObject*);
+    void finishCreation(VM&, JSPromisePrototype*);
 };
 static_assert(sizeof(JSPromiseConstructor) == sizeof(JSFunction), "Allocate JSPromiseConstructor in JSFunction IsoSubspace");
 

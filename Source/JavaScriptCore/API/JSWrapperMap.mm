@@ -39,6 +39,7 @@
 #import "ObjectConstructor.h"
 #import "WeakGCMap.h"
 #import "WeakGCMapInlines.h"
+#import <wtf/ObjCRuntimeExtras.h>
 #import <wtf/Vector.h>
 
 #if PLATFORM(COCOA)
@@ -51,6 +52,8 @@
 #else
 static constexpr int32_t firstJavaScriptCoreVersionWithInitConstructorSupport = 0x21A0400; // 538.4.0
 #endif
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 @class JSObjCClassInfo;
 
@@ -77,8 +80,8 @@ static NSString *selectorToPropertyName(const char* start)
     // at least one ':', but including a '\0'. (This is conservative if there are more than one ':').
     Vector<char, InitialBufferSize> buffer(header + strlen(firstColon + 1) + 1);
     // Copy 'header' characters, set output to point to the end of this & input to point past the first ':'.
-    memcpy(buffer.data(), start, header);
-    char* output = buffer.data() + header;
+    memcpy(buffer.mutableSpan().data(), start, header);
+    char* output = buffer.mutableSpan().data() + header;
     const char* input = start + header + 1;
 
     // On entry to the loop, we have already skipped over a ':' from the input.
@@ -101,7 +104,7 @@ static NSString *selectorToPropertyName(const char* start)
         // If we get here, we've consumed a ':' - wash, rinse, repeat.
     }
 done:
-    return [NSString stringWithUTF8String:buffer.data()];
+    return [NSString stringWithUTF8String:buffer.span().data()];
 }
 
 static bool constructorHasInstance(JSContextRef ctx, JSObjectRef constructorRef, JSValueRef possibleInstance, JSValueRef*)
@@ -293,23 +296,20 @@ struct Property {
 static bool parsePropertyAttributes(objc_property_t objcProperty, Property& property)
 {
     bool readonly = false;
-    unsigned attributeCount;
-    auto attributes = adoptSystem<objc_property_attribute_t[]>(property_copyAttributeList(objcProperty, &attributeCount));
-    if (attributeCount) {
-        for (unsigned i = 0; i < attributeCount; ++i) {
-            switch (*(attributes[i].name)) {
-            case 'G':
-                property.getterName = @(attributes[i].value);
-                break;
-            case 'S':
-                property.setterName = @(attributes[i].value);
-                break;
-            case 'R':
-                readonly = true;
-                break;
-            default:
-                break;
-            }
+    auto attributes = property_copyAttributeListSpan(objcProperty);
+    for (auto& attribute : attributes.span()) {
+        switch (*(attribute.name)) {
+        case 'G':
+            property.getterName = @(attribute.value);
+            break;
+        case 'S':
+            property.setterName = @(attribute.value);
+            break;
+        case 'R':
+            readonly = true;
+            break;
+        default:
+            break;
         }
     }
     return readonly;
@@ -324,10 +324,10 @@ static RetainPtr<NSString> makeSetterName(const char* name)
     buffer[1] = 'e';
     buffer[2] = 't';
     buffer[3] = toASCIIUpper(*name);
-    memcpy(buffer.data() + 4, name + 1, nameLength - 1);
+    memcpy(buffer.mutableSpan().data() + 4, name + 1, nameLength - 1);
     buffer[nameLength + 3] = ':';
     buffer[nameLength + 4] = '\0';
-    return @(buffer.data());
+    return @(buffer.span().data());
 }
 
 static void copyPrototypeProperties(JSContext *context, Class objcClass, Protocol *protocol, JSValue *prototypeValue)
@@ -430,7 +430,7 @@ static JSC::JSObject* allocateConstructorForCustomClass(JSContext *context, cons
         return constructorWithCustomBrand(context, [NSString stringWithFormat:@"%sConstructor", className], cls);
 
     // For each protocol that the class implements, gather all of the init family methods into a hash table.
-    __block HashMap<String, CFTypeRef> initTable;
+    __block UncheckedKeyHashMap<String, CFTypeRef> initTable;
     Protocol *exportProtocol = getJSExportProtocol();
     for (Class currentClass = cls; currentClass; currentClass = class_getSuperclass(currentClass)) {
         forEachProtocolImplementingProtocol(currentClass, exportProtocol, ^(Protocol *protocol, bool&) {
@@ -696,16 +696,18 @@ bool supportsInitMethodConstructors()
     // There are no old clients on Apple TV, so there's no need for backwards compatibility.
     return true;
 #else
-    static const bool supportsInitMethodConstructors = []() -> bool {
+    static bool supportsInitMethodConstructors;
+    static std::once_flag once;
+    std::call_once(once, [] {
         // First check to see the version of JavaScriptCore we directly linked against.
         int32_t versionOfLinkTimeJavaScriptCore = NSVersionOfLinkTimeLibrary("JavaScriptCore");
 
         // Only do the link time version comparison if we linked directly with JavaScriptCore
         if (versionOfLinkTimeJavaScriptCore != -1)
-            return versionOfLinkTimeJavaScriptCore >= firstJavaScriptCoreVersionWithInitConstructorSupport;
-
-        return linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::SupportsInitConstructors);
-    }();
+            supportsInitMethodConstructors = versionOfLinkTimeJavaScriptCore >= firstJavaScriptCoreVersionWithInitConstructorSupport;
+        else
+            supportsInitMethodConstructors = linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::SupportsInitConstructors);
+    });
     return supportsInitMethodConstructors;
 #endif
 }
@@ -721,5 +723,7 @@ Class getNSBlockClass()
     static Class cls = objc_getClass("NSBlock");
     return cls;
 }
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif

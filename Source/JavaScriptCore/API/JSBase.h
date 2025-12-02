@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -139,20 +139,6 @@ JS_EXPORT bool JSCheckScriptSyntax(JSContextRef ctx, JSStringRef script, JSStrin
 */
 JS_EXPORT void JSGarbageCollect(JSContextRef ctx);
 
-/*!
-@function JSRunLoop
-@abstract Run minimum run loop.
-@discussion To run RemoteInspectorServer, main run loop is required. Because WTF::RunLoop is not available in public, this is for that.
-*/
-JS_EXPORT void JSRunLoop(void);
-
-/*!
-@function JSSetOptions
-@abstract Set JavaScriptCore options. [Experimental]
-@discussion Pass string such as "dumpOptions=1 useDollarVM=true". Detail options are in runtime/Options.h.
-*/
-JS_EXPORT void JSSetOptions(const char* args);
-
 #ifdef __cplusplus
 }
 #endif
@@ -164,6 +150,36 @@ JS_EXPORT void JSSetOptions(const char* args);
 #else
 #define JSC_OBJC_API_ENABLED 0
 #endif
+#endif
+
+#if JSC_OBJC_API_ENABLED
+#define JSC_CF_ENUM(enumName, ...)       \
+    typedef CF_ENUM(uint32_t, enumName) { \
+        __VA_ARGS__                       \
+    }
+#else
+#define JSC_CF_ENUM(enumName, ...) \
+    typedef enum {                  \
+        __VA_ARGS__                 \
+    } enumName
+#endif
+
+#if JSC_OBJC_API_ENABLED
+#define JSC_ASSUME_NONNULL_BEGIN _Pragma("clang assume_nonnull begin")
+#define JSC_ASSUME_NONNULL_END _Pragma("clang assume_nonnull end")
+#else
+#define JSC_ASSUME_NONNULL_BEGIN
+#define JSC_ASSUME_NONNULL_END
+#endif
+
+#if JSC_OBJC_API_ENABLED
+#define JSC_NULL_UNSPECIFIED _Null_unspecified
+#define JSC_NULLABLE _Nullable
+#define JSC_NONNULL _Nonnull
+#else
+#define JSC_NULL_UNSPECIFIED
+#define JSC_NULLABLE
+#define JSC_NONNULL
 #endif
 
 #endif /* JSBase_h */

@@ -37,6 +37,7 @@
 #import "JSGlobalObject.h"
 #import "JSInternalPromise.h"
 #import "JSModuleLoader.h"
+#import "JSRetainPtr.h"
 #import "JSScriptInternal.h"
 #import "JSValueInternal.h"
 #import "JSVirtualMachineInternal.h"
@@ -49,10 +50,12 @@
 
 #if JSC_OBJC_API_ENABLED
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 @implementation JSContext {
     RetainPtr<JSVirtualMachine> m_virtualMachine;
     JSGlobalContextRef m_context;
-    JSC::Strong<JSC::JSObject> m_exception;
+    RetainPtr<JSValue> m_exception;
     WeakObjCPtr<id <JSModuleLoaderDelegate>> m_moduleLoaderDelegate;
 }
 
@@ -95,7 +98,7 @@
 
 - (void)dealloc
 {
-    m_exception.clear();
+    m_exception = nil;
     JSGlobalContextRelease(m_context);
     [_exceptionHandler release];
     [super dealloc];
@@ -190,17 +193,12 @@
     JSC::JSGlobalObject* globalObject = toJS(m_context);
     JSC::VM& vm = globalObject->vm();
     JSC::JSLockHolder locker(vm);
-    if (value)
-        m_exception.set(vm, toJS(JSValueToObject(m_context, valueInternalValue(value), 0)));
-    else
-        m_exception.clear();
+    m_exception = value;
 }
 
 - (JSValue *)exception
 {
-    if (!m_exception)
-        return nil;
-    return [JSValue valueWithJSValueRef:toRef(m_exception.get()) inContext:self];
+    return m_exception.get();
 }
 
 - (JSValue *)globalObject
@@ -210,14 +208,14 @@
 
 + (JSContext *)currentContext
 {
-    Thread& thread = Thread::current();
+    auto& thread = Thread::currentSingleton();
     CallbackData *entry = (CallbackData *)thread.m_apiData;
     return entry ? entry->context : nil;
 }
 
 + (JSValue *)currentThis
 {
-    Thread& thread = Thread::current();
+    auto& thread = Thread::currentSingleton();
     CallbackData *entry = (CallbackData *)thread.m_apiData;
     if (!entry)
         return nil;
@@ -226,7 +224,7 @@
 
 + (JSValue *)currentCallee
 {
-    Thread& thread = Thread::current();
+    auto& thread = Thread::currentSingleton();
     CallbackData *entry = (CallbackData *)thread.m_apiData;
     // calleeValue may be null if we are initializing a promise.
     if (!entry || !entry->calleeValue)
@@ -236,7 +234,7 @@
 
 + (NSArray *)currentArguments
 {
-    Thread& thread = Thread::current();
+    auto& thread = Thread::currentSingleton();
     CallbackData *entry = (CallbackData *)thread.m_apiData;
 
     if (!entry)
@@ -261,11 +259,13 @@
 
 - (NSString *)name
 {
-    JSStringRef name = JSGlobalContextCopyName(m_context);
+    // FIXME: This looks like a static analysis false positive (rdar://145661220).
+    SUPPRESS_UNCOUNTED_ARG auto name = adopt(JSGlobalContextCopyName(m_context));
     if (!name)
         return nil;
 
-    return adoptCF(JSStringCopyCFString(kCFAllocatorDefault, name)).bridgingAutorelease();
+    // FIXME: This looks like a static analysis false positive (rdar://145661220).
+    SUPPRESS_UNCOUNTED_ARG return adoptCF(JSStringCopyCFString(kCFAllocatorDefault, name.get())).bridgingAutorelease();
 }
 
 - (void)setName:(NSString *)name
@@ -381,7 +381,7 @@
 
 - (void)beginCallbackWithData:(CallbackData *)callbackData calleeValue:(JSValueRef)calleeValue thisValue:(JSValueRef)thisValue argumentCount:(size_t)argumentCount arguments:(const JSValueRef *)arguments
 {
-    Thread& thread = Thread::current();
+    auto& thread = Thread::currentSingleton();
     [self retain];
     CallbackData *prevStack = (CallbackData *)thread.m_apiData;
     *callbackData = CallbackData { prevStack, self, self.exception, calleeValue, thisValue, argumentCount, arguments, nil };
@@ -391,7 +391,7 @@
 
 - (void)endCallbackWithData:(CallbackData *)callbackData
 {
-    Thread& thread = Thread::current();
+    auto& thread = Thread::currentSingleton();
     self.exception = callbackData->preservedException.get();
     thread.m_apiData = callbackData->next;
     [self release];
@@ -424,5 +424,7 @@
 }
 
 @end
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif

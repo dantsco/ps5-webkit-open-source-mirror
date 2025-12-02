@@ -53,9 +53,9 @@ public:
     
     void run()
     {
-        HashSet<StackSlot*> validSlots;
-        HashSet<BasicBlock*> validBlocks;
-        HashSet<Special*> validSpecials;
+        UncheckedKeyHashSet<StackSlot*> validSlots;
+        UncheckedKeyHashSet<BasicBlock*> validBlocks;
+        UncheckedKeyHashSet<Special*> validSpecials;
         
         for (BasicBlock* block : m_code)
             validBlocks.add(block);
@@ -96,7 +96,7 @@ public:
                         VALIDATE(&arg <= &inst.args.last(), ("At ", arg, " in ", inst, " in ", *block));
 
                         // FIXME: replace with a check for wasm simd instructions.
-                        VALIDATE(Options::useWebAssemblySIMD()
+                        VALIDATE(Options::useWasmSIMD()
                             || !Arg::isAnyUse(role)
                             || width <= Width64, ("At ", inst, " in ", *block, " arg ", arg));
                     });
@@ -116,6 +116,14 @@ public:
                     VALIDATE(elementByteSize(inst.args[0].simdInfo().lane) <= 8, ("At ", inst, " in ", *block));
                     VALIDATE(elementByteSize(inst.args[0].simdInfo().lane) >= 2, ("At ", inst, " in ", *block));
                     break;
+                case ExtractRegister64:
+                    VALIDATE(inst.args[2].isImm(), ("At ", inst, " in ", *block));
+                    VALIDATE(inst.args[2].asTrustedImm32().m_value < 64, ("At ", inst, " in ", *block));
+                    break;
+                case ExtractRegister32:
+                    VALIDATE(inst.args[2].isImm(), ("At ", inst, " in ", *block));
+                    VALIDATE(inst.args[2].asTrustedImm32().m_value < 32, ("At ", inst, " in ", *block));
+                    break;
                 default:
                     break;
                 }
@@ -126,7 +134,7 @@ public:
 
         for (BasicBlock* block : m_code) {
             // We expect the predecessor list to be de-duplicated.
-            HashSet<BasicBlock*> predecessors;
+            UncheckedKeyHashSet<BasicBlock*> predecessors;
             for (BasicBlock* predecessor : block->predecessors())
                 predecessors.add(predecessor);
             VALIDATE(block->numPredecessors() == predecessors.size(), ("At ", *block));

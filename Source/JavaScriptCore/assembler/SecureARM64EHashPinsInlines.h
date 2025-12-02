@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "SecureARM64EHashPins.h"
+#include <JavaScriptCore/SecureARM64EHashPins.h>
 
 #if CPU(ARM64E) && ENABLE(JIT)
 
@@ -34,7 +34,7 @@ namespace JSC {
 ALWAYS_INLINE uint64_t SecureARM64EHashPins::keyForCurrentThread()
 {
     uint64_t result;
-    asm (
+    __asm__(
         "mrs %x[result], TPIDRRO_EL0"
         : [result] "=r" (result)
         :
@@ -103,7 +103,7 @@ ALWAYS_INLINE auto SecureARM64EHashPins::findFirstEntry() -> FindResult
 
 ALWAYS_INLINE uint64_t SecureARM64EHashPins::pinForCurrentThread()
 {
-    if (LIKELY(g_jscConfig.useFastJITPermissions))
+    if (g_jscConfig.useFastJITPermissions) [[likely]]
         return findFirstEntry().entry->pin;
     return 1;
 }

@@ -35,4 +35,3 @@ inspector/remote/socket/RemoteInspectorMessageParser.cpp
 inspector/remote/socket/RemoteInspectorServer.cpp
 inspector/remote/socket/RemoteInspectorSocket.cpp
 inspector/remote/socket/RemoteInspectorSocketEndpoint.cpp
-inspector/remote/socket/RemoteInspectorUtils.cpp

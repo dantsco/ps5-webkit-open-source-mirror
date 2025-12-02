@@ -27,15 +27,13 @@
 
 #if ENABLE(REMOTE_INSPECTOR)
 
-#include "JSExportMacros.h"
+#include <JavaScriptCore/JSExportMacros.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/TypeCasts.h>
 #include <wtf/text/WTFString.h>
 
 #if USE(CF)
 #include <CoreFoundation/CFRunLoop.h>
-#endif
-#if USE(OVERRIDABLE_TARGET_DISPATCHER)
-#include <wtf/RunLoop.h>
 #endif
 
 namespace Inspector {
@@ -44,8 +42,9 @@ class FrontendChannel;
 
 using TargetID = unsigned;
 
-class JS_EXPORT_PRIVATE RemoteControllableTarget {
+class JS_EXPORT_PRIVATE RemoteControllableTarget : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<RemoteControllableTarget> {
 public:
+    RemoteControllableTarget();
     virtual ~RemoteControllableTarget();
 
     void init();
@@ -63,6 +62,10 @@ public:
         JavaScript,
         Page,
         ServiceWorker,
+        // This is specifically for the JSC Wasm Debugger server, which is a standalone
+        // debugging target for WebAssembly execution. This is NOT used by regular Web Inspector
+        // when debugging WebAssembly inside web pages - that will use the normal Page/Frame targets.
+        WasmDebugger,
         WebPage,
     };
     virtual Type type() const = 0;
@@ -74,17 +77,8 @@ public:
     virtual CFRunLoopRef targetRunLoop() const { return nullptr; }
 #endif
 
-#if USE(OVERRIDABLE_TARGET_DISPATCHER)
-    void setTargetFunctionDispatcher(RefPtr<RunLoop> dispatcher) { m_targetFunctionDispatcher = dispatcher; }
-    RunLoop* targetFunctionDispatcher() const { return m_targetFunctionDispatcher.get(); }
-#endif
-
 private:
     TargetID m_identifier { 0 };
-
-#if USE(OVERRIDABLE_TARGET_DISPATCHER)
-    RefPtr<RunLoop> m_targetFunctionDispatcher;
-#endif
 };
 
 } // namespace Inspector

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006, 2007 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,6 +33,8 @@
 #include "OpaqueJSString.h"
 #include <wtf/StdLibExtras.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 JSStringRef JSStringCreateWithCFString(CFStringRef string)
 {
     JSC::initialize();
@@ -41,18 +43,18 @@ JSStringRef JSStringCreateWithCFString(CFStringRef string)
     // it can hold.  (<rdar://problem/6806478>)
     size_t length = CFStringGetLength(string);
     if (!length)
-        return &OpaqueJSString::create(reinterpret_cast<const LChar*>(""), 0).leakRef();
+        return &OpaqueJSString::create(""_span8).leakRef();
 
-    Vector<LChar, 1024> lcharBuffer(length);
+    Vector<Latin1Character, 1024> lcharBuffer(length);
     CFIndex usedBufferLength;
-    CFIndex convertedSize = CFStringGetBytes(string, CFRangeMake(0, length), kCFStringEncodingISOLatin1, 0, false, lcharBuffer.data(), length, &usedBufferLength);
+    CFIndex convertedSize = CFStringGetBytes(string, CFRangeMake(0, length), kCFStringEncodingISOLatin1, 0, false, byteCast<UInt8>(lcharBuffer.mutableSpan().data()), length, &usedBufferLength);
     if (static_cast<size_t>(convertedSize) == length && static_cast<size_t>(usedBufferLength) == length)
-        return &OpaqueJSString::create(lcharBuffer.data(), length).leakRef();
+        return &OpaqueJSString::create(lcharBuffer.span()).leakRef();
 
     Vector<UniChar> buffer(length);
-    CFStringGetCharacters(string, CFRangeMake(0, length), buffer.data());
-    static_assert(sizeof(UniChar) == sizeof(UChar), "UniChar and UChar must be same size");
-    return &OpaqueJSString::create(reinterpret_cast<UChar*>(buffer.data()), length).leakRef();
+    CFStringGetCharacters(string, CFRangeMake(0, length), buffer.mutableSpan().data());
+    static_assert(sizeof(UniChar) == sizeof(char16_t), "UniChar and char16_t must be same size");
+    return &OpaqueJSString::create({ reinterpret_cast<const char16_t*>(buffer.span().data()), length }).leakRef();
 }
 
 CFStringRef JSStringCopyCFString(CFAllocatorRef allocator, JSStringRef string)
@@ -60,8 +62,12 @@ CFStringRef JSStringCopyCFString(CFAllocatorRef allocator, JSStringRef string)
     if (!string || !string->length())
         return CFSTR("");
 
-    if (string->is8Bit())
-        return CFStringCreateWithBytes(allocator, reinterpret_cast<const UInt8*>(string->characters8()), string->length(), kCFStringEncodingISOLatin1, false);
-
-    return CFStringCreateWithCharacters(allocator, reinterpret_cast<const UniChar*>(string->characters16()), string->length());
+    if (string->is8Bit()) {
+        auto characters = string->span8();
+        return CFStringCreateWithBytes(allocator, byteCast<UInt8>(characters.data()), characters.size(), kCFStringEncodingISOLatin1, false);
+    }
+    auto characters = string->span16();
+    return CFStringCreateWithCharacters(allocator, reinterpret_cast<const UniChar*>(characters.data()), characters.size());
 }
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

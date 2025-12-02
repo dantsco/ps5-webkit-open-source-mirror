@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,28 +25,19 @@
 
 #include "config.h"
 #include "WasmWorklist.h"
-#include "WasmLLIntGenerator.h"
 
 #if ENABLE(WEBASSEMBLY)
 
 #include "CPU.h"
 #include "WasmPlan.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC { namespace Wasm {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Worklist);
+
 namespace WasmWorklistInternal {
 static constexpr bool verbose = false;
-}
-
-const char* Worklist::priorityString(Priority priority)
-{
-    switch (priority) {
-    case Priority::Preparation: return "Preparation";
-    case Priority::Shutdown: return "Shutdown";
-    case Priority::Compilation: return "Compilation";
-    case Priority::Synchronous: return "Synchronous";
-    }
-    RELEASE_ASSERT_NOT_REACHED();
 }
 
 void Worklist::dump(PrintStream& out) const
@@ -60,16 +51,23 @@ void Worklist::dump(PrintStream& out) const
 // many threads. In order to stop a thread from wasting time we remove any plan that is
 // is currently in a single threaded state from the work queue so other plans can run.
 class Worklist::Thread final : public AutomaticThread {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(Thread);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(Thread);
 public:
     using Base = AutomaticThread;
+    static Ref<Thread> create(const AbstractLocker& locker, Worklist& work)
+    {
+        return adoptRef(*new Thread(locker, work));
+    }
+
+private:
     Thread(const AbstractLocker& locker, Worklist& work)
-        : Base(locker, work.m_lock, work.m_planEnqueued.copyRef())
+        : Base(locker, work.m_lock, work.m_planEnqueued.copyRef(), ThreadType::Compiler)
         , worklist(work)
     {
 
     }
 
-private:
     PollResult poll(const AbstractLocker&) final
     {
         auto& queue = worklist.m_queue;
@@ -97,6 +95,12 @@ private:
 
     WorkResult work() final
     {
+#if USE(PROTECTED_JIT)
+        // Must be constructed before we allocate anything using
+        // SequesteredArenaMalloc
+        ArenaLifetime m_saLifetime { };
+#endif
+
         auto complete = [&] (const AbstractLocker&) {
             // We need to hold the lock to release our plan otherwise the main thread, while canceling plans
             // might use after free the plan we are looking at
@@ -108,7 +112,7 @@ private:
         ASSERT(plan);
 
         bool wasMultiThreaded = plan->multiThreaded();
-        plan->work(Plan::Partial);
+        plan->work();
 
         ASSERT(!plan->hasWork() || plan->multiThreaded());
         if (plan->hasWork() && !wasMultiThreaded && plan->multiThreaded()) {
@@ -122,9 +126,9 @@ private:
         return complete(Locker { *worklist.m_lock });
     }
 
-    const char* name() const final
+    ASCIILiteral name() const final
     {
-        return "Wasm Worklist Helper Thread";
+        return "Wasm Worklist Helper Thread"_s;
     }
 
 public:
@@ -217,10 +221,10 @@ Worklist::Worklist()
     , m_planEnqueued(AutomaticThreadCondition::create())
 {
     unsigned numberOfCompilationThreads = Options::useConcurrentJIT() ? Options::numberOfWasmCompilerThreads() : 1;
-    m_threads.reserveInitialCapacity(numberOfCompilationThreads);
     Locker locker { *m_lock };
-    for (unsigned i = 0; i < numberOfCompilationThreads; ++i)
-        m_threads.uncheckedAppend(makeUnique<Worklist::Thread>(locker, *this));
+    m_threads = Vector<Ref<Thread>>(numberOfCompilationThreads, [&](size_t) {
+        return Worklist::Thread::create(locker, *this);
+    });
 }
 
 Worklist::~Worklist()
@@ -231,7 +235,7 @@ Worklist::~Worklist()
         m_planEnqueued->notifyAll(locker);
     }
     for (unsigned i = 0; i < m_threads.size(); ++i)
-        m_threads[i]->join();
+        Ref { m_threads[i] }->join();
 }
 
 static Worklist* globalWorklist;

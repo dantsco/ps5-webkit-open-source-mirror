@@ -27,16 +27,20 @@
 
 #if ENABLE(WEBASSEMBLY)
 
+#include <JavaScriptCore/MacroAssembler.h>
 #include <wtf/Lock.h>
 #include <wtf/UniqueArray.h>
 #include <wtf/Vector.h>
 
 namespace JSC { namespace Wasm {
 
-class Instance;
-
 struct Context {
     uint64_t* scratchBufferForSize(size_t numberOfSlots);
+
+    ALWAYS_INLINE static constexpr size_t scratchBufferSlotsPerValue(SavedFPWidth savedFPWidth)
+    {
+        return savedFPWidth == SavedFPWidth::SaveVectors ? 2 : 1;
+    }
 
 private:
     Vector<UniqueArray<uint64_t>> m_scratchBuffers;

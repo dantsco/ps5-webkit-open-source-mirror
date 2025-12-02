@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2015 Yusuke Suzuki <utatane.tea@gmail.com>.
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -56,12 +56,6 @@ public:
 
     bool operator==(const TemplateObjectDescriptor& other) const { return m_hash == other.m_hash && m_rawStrings == other.m_rawStrings; }
 
-    struct Hasher {
-        static unsigned hash(const TemplateObjectDescriptor& key) { return key.hash(); }
-        static bool equal(const TemplateObjectDescriptor& a, const TemplateObjectDescriptor& b) { return a == b; }
-        static constexpr bool safeToCompareToEmptyOrDeleted = false;
-    };
-
     static unsigned calculateHash(const StringVector& rawStrings);
     ~TemplateObjectDescriptor();
 
@@ -97,12 +91,12 @@ inline TemplateObjectDescriptor::TemplateObjectDescriptor(EmptyValueTag)
 
 inline unsigned TemplateObjectDescriptor::calculateHash(const StringVector& rawStrings)
 {
-    StringHasher hasher;
+    SuperFastHash hasher;
     for (const String& string : rawStrings) {
         if (string.is8Bit())
-            hasher.addCharacters(string.characters8(), string.length());
+            hasher.addCharacters(string.span8());
         else
-            hasher.addCharacters(string.characters16(), string.length());
+            hasher.addCharacters(string.span16());
     }
     return hasher.hash();
 }
@@ -110,10 +104,6 @@ inline unsigned TemplateObjectDescriptor::calculateHash(const StringVector& rawS
 } // namespace JSC
 
 namespace WTF {
-template<typename> struct DefaultHash;
-
-template<> struct DefaultHash<JSC::TemplateObjectDescriptor> : JSC::TemplateObjectDescriptor::Hasher { };
-
 template<> struct HashTraits<JSC::TemplateObjectDescriptor> : CustomHashTraits<JSC::TemplateObjectDescriptor> {
 };
 

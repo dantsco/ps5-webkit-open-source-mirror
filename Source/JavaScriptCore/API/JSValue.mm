@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -46,7 +46,9 @@
 #import <wtf/HashMap.h>
 #import <wtf/HashSet.h>
 #import <wtf/Lock.h>
+#import <wtf/StdLibExtras.h>
 #import <wtf/Vector.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/text/WTFString.h>
 #import <wtf/text/StringHash.h>
 
@@ -57,6 +59,8 @@
 #endif
 
 #if JSC_OBJC_API_ENABLED
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 using JSC::Integrity::audit;
 
@@ -159,6 +163,86 @@ NSString * const JSPropertyDescriptorSetKey = @"set";
     return [JSValue valueWithJSValueRef:JSValueMakeSymbol([context JSGlobalContextRef], string.get()) inContext:context];
 }
 
++ (JSValue *)valueWithNewBigIntFromString:(NSString *)string inContext:(JSContext *)context
+{
+    JSValueRef exception = nullptr;
+    JSValueRef bigInt = JSBigIntCreateWithString([context JSGlobalContextRef], OpaqueJSString::tryCreate(string).get(), &exception);
+    if (exception) {
+        [context notifyException:exception];
+        return nil;
+    }
+    return [JSValue valueWithJSValueRef:bigInt inContext:context];
+}
+
++ (JSValue *)valueWithNewBigIntFromInt64:(int64_t)int64 inContext:(JSContext *)context
+{
+    JSValueRef exception = nullptr;
+    JSValueRef bigInt = JSBigIntCreateWithInt64([context JSGlobalContextRef], int64, &exception);
+    if (exception) {
+        [context notifyException:exception];
+        return nil;
+    }
+    return [JSValue valueWithJSValueRef:bigInt inContext:context];
+}
+
++ (JSValue *)valueWithNewBigIntFromUInt64:(uint64_t)uint64 inContext:(JSContext *)context
+{
+    JSValueRef exception = nullptr;
+    JSValueRef bigInt = JSBigIntCreateWithUInt64([context JSGlobalContextRef], uint64, &exception);
+    if (exception) {
+        [context notifyException:exception];
+        return nil;
+    }
+    return [JSValue valueWithJSValueRef:bigInt inContext:context];
+}
+
++ (JSValue *)valueWithNewBigIntFromDouble:(double)value inContext:(JSContext *)context
+{
+    JSValueRef exception = nullptr;
+    JSValueRef bigInt = JSBigIntCreateWithDouble([context JSGlobalContextRef], value, &exception);
+    if (exception) {
+        [context notifyException:exception];
+        return nil;
+    }
+    return [JSValue valueWithJSValueRef:bigInt inContext:context];
+}
+
+- (JSRelationCondition)compareUInt64:(uint64_t)other
+{
+    JSValueRef exception = nullptr;
+    JSRelationCondition result = JSValueCompareUInt64([_context JSGlobalContextRef], m_value, other, &exception);
+    if (exception)
+        [_context notifyException:exception];
+    return result;
+}
+
+- (JSRelationCondition)compareInt64:(int64_t)other
+{
+    JSValueRef exception = nullptr;
+    JSRelationCondition result = JSValueCompareInt64([_context JSGlobalContextRef], m_value, other, &exception);
+    if (exception)
+        [_context notifyException:exception];
+    return result;
+}
+
+- (JSRelationCondition)compareDouble:(double)other
+{
+    JSValueRef exception = nullptr;
+    JSRelationCondition result = JSValueCompareDouble([_context JSGlobalContextRef], m_value, other, &exception);
+    if (exception)
+        [_context notifyException:exception];
+    return result;
+}
+
+- (JSRelationCondition)compareJSValue:(JSValue *)other
+{
+    JSValueRef exception = nullptr;
+    JSRelationCondition result = JSValueCompare([_context JSGlobalContextRef], m_value, other->m_value, &exception);
+    if (exception)
+        [_context notifyException:exception];
+    return result;
+}
+
 + (JSValue *)valueWithNewPromiseInContext:(JSContext *)context fromExecutor:(void (^)(JSValue *, JSValue *))executor
 {
     JSObjectRef resolve;
@@ -167,7 +251,7 @@ NSString * const JSPropertyDescriptorSetKey = @"set";
     JSObjectRef promise = JSObjectMakeDeferredPromise([context JSGlobalContextRef], &resolve, &reject, &exception);
     if (exception) {
         [context notifyException:exception];
-        return [JSValue valueWithUndefinedInContext:context];
+        return nil;
     }
 
     JSValue *result = [JSValue valueWithJSValueRef:promise inContext:context];
@@ -231,12 +315,42 @@ NSString * const JSPropertyDescriptorSetKey = @"set";
 
 - (int32_t)toInt32
 {
-    return JSC::toInt32([self toDouble]);
+    JSValueRef exception = nullptr;
+    int32_t result = JSValueToInt32([_context JSGlobalContextRef], m_value, &exception);
+    if (exception) {
+        [_context notifyException:exception];
+        return 0;
+    }
+    return result;
 }
 
 - (uint32_t)toUInt32
 {
-    return JSC::toUInt32([self toDouble]);
+    JSValueRef exception = nullptr;
+    uint32_t result = JSValueToUInt32([_context JSGlobalContextRef], m_value, &exception);
+    if (exception)
+        [_context notifyException:exception];
+    return result;
+}
+
+- (int64_t)toInt64
+{
+    JSValueRef exception = nullptr;
+    int64_t result = JSValueToInt64([_context JSGlobalContextRef], m_value, &exception);
+    if (exception) {
+        [_context notifyException:exception];
+        return 0;
+    }
+    return result;
+}
+
+- (uint64_t)toUInt64
+{
+    JSValueRef exception = nullptr;
+    uint64_t result = JSValueToUInt64([_context JSGlobalContextRef], m_value, &exception);
+    if (exception)
+        [_context notifyException:exception];
+    return result;
 }
 
 - (NSNumber *)toNumber
@@ -295,8 +409,8 @@ inline Expected<Result, JSValueRef> performPropertyOperation(NSStringFunction st
 
     Result result;
     // If it's a NSString already, reduce indirection and just pass the NSString.
-    if ([propertyKey isKindOfClass:[NSString class]]) {
-        auto name = OpaqueJSString::tryCreate((NSString *)propertyKey);
+    if (auto *propertyKeyString = dynamic_objc_cast<NSString>(propertyKey)) {
+        auto name = OpaqueJSString::tryCreate(propertyKeyString);
         result = stringFunction([context JSGlobalContextRef], object, name.get(), arguments..., &exception);
     } else
         result = jsFunction([context JSGlobalContextRef], object, [[JSValue valueWithObject:propertyKey inContext:context] JSValueRef], arguments..., &exception);
@@ -460,6 +574,15 @@ inline Expected<Result, JSValueRef> performPropertyOperation(NSStringFunction st
     return JSValueIsSymbol([_context JSGlobalContextRef], m_value);
 #else
     return toJS(m_value).isSymbol();
+#endif
+}
+
+- (BOOL)isBigInt
+{
+#if !CPU(ADDRESS64)
+    return JSValueIsBigInt([_context JSGlobalContextRef], m_value);
+#else
+    return toJS(m_value).isBigInt();
 #endif
 }
 
@@ -716,13 +839,16 @@ public:
 
 private:
     JSGlobalContextRef m_context;
-    HashMap<JSValueRef, __unsafe_unretained id> m_objectMap;
+    UncheckedKeyHashMap<JSValueRef, __unsafe_unretained id> m_objectMap;
     Vector<Task> m_worklist;
     Vector<JSC::Strong<JSC::Unknown>> m_jsValues;
 };
 
 inline id JSContainerConvertor::convert(JSValueRef value)
 {
+    if (!value)
+        return nil;
+
     auto iter = m_objectMap.find(value);
     if (iter != m_objectMap.end())
         return iter->value;
@@ -760,6 +886,7 @@ static void reportExceptionToInspector(JSGlobalContextRef context, JSC::JSValue 
 }
 #endif
 
+// Similar to JavaScriptEvaluationResult::toVariant.
 static JSContainerConvertor::Task valueToObjectWithoutCopy(JSGlobalContextRef context, JSValueRef value)
 {
     if (!JSValueIsObject(context, value)) {
@@ -777,10 +904,8 @@ static JSContainerConvertor::Task valueToObjectWithoutCopy(JSGlobalContextRef co
             primitive = adoptCF(JSStringCopyCFString(kCFAllocatorDefault, jsstring.get())).bridgingAutorelease();
         } else if (JSValueIsNull(context, value))
             primitive = [NSNull null];
-        else {
-            ASSERT(JSValueIsUndefined(context, value));
+        else
             primitive = nil;
-        }
         return { value, primitive, ContainerNone };
     }
 
@@ -961,7 +1086,7 @@ public:
 
 private:
     JSContext *m_context;
-    HashMap<__unsafe_unretained id, JSValueRef> m_objectMap;
+    UncheckedKeyHashMap<__unsafe_unretained id, JSValueRef> m_objectMap;
     Vector<Task> m_worklist;
     Vector<JSC::Strong<JSC::Unknown>> m_jsValues;
 };
@@ -1024,8 +1149,8 @@ static ObjcContainerConvertor::Task objectToValueWithoutCopy(JSContext *context,
         if ([object isKindOfClass:[JSValue class]])
             return { object, ((JSValue *)object)->m_value, ContainerNone };
 
-        if ([object isKindOfClass:[NSString class]]) {
-            auto string = OpaqueJSString::tryCreate((NSString *)object);
+        if (auto *nsString = dynamic_objc_cast<NSString>(object)) {
+            auto string = OpaqueJSString::tryCreate(nsString);
             return { object, JSValueMakeString(contextRef, string.get()), ContainerNone };
         }
 
@@ -1081,8 +1206,8 @@ JSValueRef objectToValue(JSContext *context, id object)
             ASSERT([current.objc isKindOfClass:[NSDictionary class]]);
             NSDictionary *dictionary = (NSDictionary *)current.objc;
             for (id key in [dictionary keyEnumerator]) {
-                if ([key isKindOfClass:[NSString class]]) {
-                    auto propertyName = OpaqueJSString::tryCreate((NSString *)key);
+                if (auto *keyString = dynamic_objc_cast<NSString>(key)) {
+                    auto propertyName = OpaqueJSString::tryCreate(keyString);
                     JSObjectSetProperty(contextRef, js, propertyName.get(), convertor.convert([dictionary objectForKey:key]), 0, 0);
                 }
             }
@@ -1128,7 +1253,7 @@ struct StructTagHandler {
     SEL typeToValueSEL;
     SEL valueToTypeSEL;
 };
-typedef HashMap<String, StructTagHandler> StructHandlers;
+typedef UncheckedKeyHashMap<String, StructTagHandler> StructHandlers;
 
 static StructHandlers* createStructHandlerMap()
 {
@@ -1140,10 +1265,9 @@ static StructHandlers* createStructHandlerMap()
     // Step 1: find all valueWith<Foo>:inContext: class methods in JSValue.
     forEachMethodInClass(object_getClass([JSValue class]), ^(Method method){
         SEL selector = method_getName(method);
-        const char* name = sel_getName(selector);
-        size_t nameLength = strlen(name);
+        auto name = unsafeSpan(sel_getName(selector));
         // Check for valueWith<Foo>:context:
-        if (nameLength < valueWithXinContextLength || memcmp(name, "valueWith", 9) || memcmp(name + nameLength - 11, ":inContext:", 11))
+        if (name.size() < valueWithXinContextLength || !spanHasPrefix(name, "valueWith"_span) || !spanHasSuffix(name, ":inContext:"_span))
             return;
         // Check for [ id, SEL, <type>, <contextType> ]
         if (method_getNumberOfArguments(method) != 4)
@@ -1151,7 +1275,7 @@ static StructHandlers* createStructHandlerMap()
         char idType[3];
         // Check 2nd argument type is "@"
         {
-            auto secondType = adoptSystem<char[]>(method_copyArgumentType(method, 3));
+            auto secondType = adoptSystemMalloc(method_copyArgumentType(method, 3));
             if (strcmp(secondType.get(), "@") != 0)
                 return;
         }
@@ -1160,42 +1284,41 @@ static StructHandlers* createStructHandlerMap()
         if (strcmp(idType, "@") != 0)
             return;
         {
-            auto type = adoptSystem<char[]>(method_copyArgumentType(method, 2));
-            structHandlers->add(StringImpl::createFromCString(type.get()), (StructTagHandler) { selector, 0 });
+            auto type = adoptSystemMalloc(method_copyArgumentType(method, 2));
+            structHandlers->add(byteCast<Latin1Character>(unsafeSpan(type.get())), StructTagHandler { selector, nullptr });
         }
     });
 
     // Step 2: find all to<Foo> instance methods in JSValue.
     forEachMethodInClass([JSValue class], ^(Method method){
         SEL selector = method_getName(method);
-        const char* name = sel_getName(selector);
-        size_t nameLength = strlen(name);
+        auto name = unsafeSpan(sel_getName(selector));
         // Check for to<Foo>
-        if (nameLength < toXLength || memcmp(name, "to", 2))
+        if (name.size() < toXLength || !spanHasPrefix(name, "to"_span))
             return;
         // Check for [ id, SEL ]
         if (method_getNumberOfArguments(method) != 2)
             return;
         // Try to find a matching valueWith<Foo>:context: method.
-        auto type = adoptSystem<char[]>(method_copyReturnType(method));
+        auto type = adoptSystemMalloc(method_copyReturnType(method));
         StructHandlers::iterator iter = structHandlers->find(String::fromLatin1(type.get()));
         if (iter == structHandlers->end())
             return;
         StructTagHandler& handler = iter->value;
 
         // check that strlen(<foo>) == strlen(<Foo>)
-        const char* valueWithName = sel_getName(handler.typeToValueSEL);
-        size_t valueWithLength = strlen(valueWithName);
-        if (valueWithLength - valueWithXinContextLength != nameLength - toXLength)
+        auto valueWithName = unsafeSpan(sel_getName(handler.typeToValueSEL));
+        if (valueWithName.size() - valueWithXinContextLength != name.size() - toXLength)
             return;
         // Check that <Foo> == <Foo>
-        if (memcmp(valueWithName + 9, name + 2, nameLength - toXLength - 1))
+        auto lengthToCheck = name.size() - toXLength - 1;
+        if (!equalSpans(valueWithName.subspan(9, lengthToCheck), name.subspan(2, lengthToCheck)))
             return;
         handler.valueToTypeSEL = selector;
     });
 
     // Step 3: clean up - remove entries where we found prospective valueWith<Foo>:inContext: conversions, but no matching to<Foo> methods.
-    typedef HashSet<String> RemoveSet;
+    typedef UncheckedKeyHashSet<String> RemoveSet;
     RemoveSet removeSet;
     for (StructHandlers::iterator iter = structHandlers->begin(); iter != structHandlers->end(); ++iter) {
         StructTagHandler& handler = iter->value;
@@ -1259,5 +1382,7 @@ NSInvocation *valueToTypeInvocationFor(const char* encodedType)
 }
 
 @end
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif

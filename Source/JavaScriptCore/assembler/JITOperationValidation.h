@@ -25,6 +25,8 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(JIT_CAGE)
 #include <WebKitAdditions/JITCageAdditions.h>
 #else // ENABLE(JIT_CAGE)
@@ -46,6 +48,18 @@
 #endif
 
 namespace JSC {
+
+#ifndef JIT_OPERATION_VALIDATION_FUNCTOR
+#define JIT_OPERATION_VALIDATION_FUNCTOR Functor
+#endif
+
+template<typename Functor>
+struct JITOperationAnnotationInitializer {
+    Functor* operation;
+#if ENABLE(JIT_OPERATION_VALIDATION)
+    JIT_OPERATION_VALIDATION_FUNCTOR* operationWithValidation;
+#endif
+};
 
 struct JITOperationAnnotation {
     void* operation;

@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "JSCPtrTag.h"
+#include <JavaScriptCore/JSCPtrTag.h>
 
 namespace JSC {
 
@@ -36,31 +36,26 @@ extern "C" {
     void llintPCRangeStart();
     void llintPCRangeEnd();
 #if ENABLE(WEBASSEMBLY)
-    void wasmLLIntPCRangeStart();
-    void wasmLLIntPCRangeEnd();
+    void wasmIPIntPCRangeStart();
+    void wasmIPIntPCRangeEnd();
 #endif
 }
 
 ALWAYS_INLINE bool isLLIntPC(void* pc)
 {
-#if PLATFORM(PLAYSTATION)
-    UNUSED_PARAM(pc);
-    return false;
-#else
-    uintptr_t pcAsInt = bitwise_cast<uintptr_t>(pc);
+    uintptr_t pcAsInt = std::bit_cast<uintptr_t>(pc);
     uintptr_t llintStart = untagCodePtr<uintptr_t, CFunctionPtrTag>(llintPCRangeStart);
     uintptr_t llintEnd = untagCodePtr<uintptr_t, CFunctionPtrTag>(llintPCRangeEnd);
     RELEASE_ASSERT(llintStart < llintEnd);
     return llintStart <= pcAsInt && pcAsInt <= llintEnd;
-#endif
 }
 
 #if ENABLE(WEBASSEMBLY)
-ALWAYS_INLINE bool isWasmLLIntPC(void* pc)
+ALWAYS_INLINE bool isWasmIPIntPC(void* pc)
 {
-    uintptr_t pcAsInt = bitwise_cast<uintptr_t>(pc);
-    uintptr_t start = untagCodePtr<uintptr_t, CFunctionPtrTag>(wasmLLIntPCRangeStart);
-    uintptr_t end = untagCodePtr<uintptr_t, CFunctionPtrTag>(wasmLLIntPCRangeEnd);
+    uintptr_t pcAsInt = std::bit_cast<uintptr_t>(pc);
+    uintptr_t start = untagCodePtr<uintptr_t, CFunctionPtrTag>(wasmIPIntPCRangeStart);
+    uintptr_t end = untagCodePtr<uintptr_t, CFunctionPtrTag>(wasmIPIntPCRangeEnd);
     RELEASE_ASSERT(start < end);
     return start <= pcAsInt && pcAsInt <= end;
 }

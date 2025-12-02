@@ -27,8 +27,8 @@
 
 #if ENABLE(ASSEMBLER)
 
-#include "MacroAssembler.h"
-#include "Width.h"
+#include <JavaScriptCore/MacroAssembler.h>
+#include <JavaScriptCore/Width.h>
 
 namespace JSC {
 
@@ -113,6 +113,7 @@ public:
     constexpr explicit operator bool() const { return isSet(); }
 
     constexpr bool isHashTableDeletedValue() const { return m_index == deleted(); }
+    static constexpr bool safeToCompareToHashTableEmptyOrDeletedValue = true;
 
     constexpr bool isGPR() const
     {
@@ -137,37 +138,14 @@ public:
             MacroAssembler::firstFPRegister() + (m_index - MacroAssembler::numberOfRegisters()));
     }
 
-    constexpr bool operator==(const Reg& other) const
-    {
-        return m_index == other.m_index;
-    }
-
-    constexpr bool operator<(const Reg& other) const
-    {
-        return m_index < other.m_index;
-    }
-
-    constexpr bool operator>(const Reg& other) const
-    {
-        return m_index > other.m_index;
-    }
-
-    constexpr bool operator<=(const Reg& other) const
-    {
-        return m_index <= other.m_index;
-    }
-
-    constexpr bool operator>=(const Reg& other) const
-    {
-        return m_index >= other.m_index;
-    }
+    friend constexpr auto operator<=>(const Reg&, const Reg&) = default;
 
     constexpr unsigned hash() const
     {
         return m_index;
     }
 
-    const char* debugName() const;
+    ASCIILiteral debugName() const;
 
     void dump(PrintStream&) const;
 
@@ -191,10 +169,7 @@ public:
                 return *this;
             }
 
-            bool operator==(const iterator& other) const
-            {
-                return m_regIndex == other.m_regIndex;
-            }
+            friend bool operator==(const iterator&, const iterator&) = default;
 
         private:
             unsigned m_regIndex;
@@ -211,14 +186,9 @@ private:
 
     static constexpr uint8_t deleted() { return invalid() - 1; }
 
-    unsigned m_index : 7;
+    uint8_t m_index : 7;
 };
-
-struct RegHash {
-    static unsigned hash(const Reg& key) { return key.hash(); }
-    static bool equal(const Reg& a, const Reg& b) { return a == b; }
-    static constexpr bool safeToCompareToEmptyOrDeleted = true;
-};
+static_assert(sizeof(Reg) == 1);
 
 ALWAYS_INLINE constexpr Width conservativeWidthWithoutVectors(const Reg reg)
 {
@@ -243,9 +213,6 @@ ALWAYS_INLINE constexpr unsigned conservativeRegisterBytesWithoutVectors(const R
 } // namespace JSC
 
 namespace WTF {
-
-template<typename T> struct DefaultHash;
-template<> struct DefaultHash<JSC::Reg> : JSC::RegHash { };
 
 template<typename T> struct HashTraits;
 template<> struct HashTraits<JSC::Reg> : SimpleClassHashTraits<JSC::Reg> {

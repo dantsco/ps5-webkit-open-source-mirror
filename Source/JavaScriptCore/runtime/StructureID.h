@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,8 +25,9 @@
 
 #pragma once
 
-#include "JSCConfig.h"
-#include "MarkedBlock.h"
+#include <JavaScriptCore/JSCConfig.h>
+#include <JavaScriptCore/MarkedBlock.h>
+#include <compare>
 #include <wtf/HashTraits.h>
 #include <wtf/StdIntExtras.h>
 
@@ -37,11 +38,9 @@ class Structure;
 #if CPU(ADDRESS64)
 
 // We would like to define this value in PlatformEnable.h, but it is not possible since the following is relying on MACH_VM_MAX_ADDRESS.
-#if CPU(ARM64) && OS(DARWIN) && !PLATFORM(IOS_FAMILY_SIMULATOR)
-#if MACH_VM_MAX_ADDRESS_RAW < (1ULL << 36)
+#if OS(DARWIN) && HAVE(36BIT_ADDRESS)
 #define ENABLE_STRUCTURE_ID_WITH_SHIFT 1
 static_assert(MACH_VM_MAX_ADDRESS_RAW == MACH_VM_MAX_ADDRESS);
-#endif
 #endif
 
 #if !ENABLE(STRUCTURE_ID_WITH_SHIFT)
@@ -72,9 +71,9 @@ public:
     static constexpr CPURegister structureIDMask = structureHeapAddressSize - 1;
 #endif
 
-    StructureID() = default;
-    StructureID(StructureID const&) = default;
-    StructureID& operator=(StructureID const&) = default;
+    constexpr StructureID() = default;
+    constexpr StructureID(StructureID const&) = default;
+    constexpr StructureID& operator=(StructureID const&) = default;
 
     StructureID nuke() const { return StructureID(m_bits | nukedStructureIDBit); }
     bool isNuked() const { return m_bits & nukedStructureIDBit; }
@@ -85,14 +84,14 @@ public:
     static StructureID encode(const Structure*);
 
     explicit operator bool() const { return !!m_bits; }
-    bool operator==(StructureID const& other) const  { return m_bits == other.m_bits; }
+    friend auto operator<=>(const StructureID&, const StructureID&) = default;
     constexpr uint32_t bits() const { return m_bits; }
 
-    StructureID(WTF::HashTableDeletedValueType) : m_bits(nukedStructureIDBit) { }
+    constexpr StructureID(WTF::HashTableDeletedValueType) : m_bits(nukedStructureIDBit) { }
     bool isHashTableDeletedValue() const { return *this == StructureID(WTF::HashTableDeletedValue); }
 
 private:
-    explicit StructureID(uint32_t bits) : m_bits(bits) { }
+    explicit constexpr StructureID(uint32_t bits) : m_bits(bits) { }
 
     uint32_t m_bits { 0 };
 };

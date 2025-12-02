@@ -25,18 +25,20 @@
 
 #pragma once
 
-#if ENABLE(ASSEMBLER) && CPU(ARM64E)
+#include <wtf/Platform.h>
 
-#include "DisallowMacroScratchRegisterUsage.h"
-#include <wtf/MathExtras.h>
+#if ENABLE(ASSEMBLER) && CPU(ARM64E)
 
 // We need to include this before MacroAssemblerARM64.h because MacroAssemblerARM64
 // will be defined in terms of ARM64EAssembler for ARM64E.
-#include "ARM64EAssembler.h"
-#include "JITOperationValidation.h"
-#include "JSCConfig.h"
-#include "JSCPtrTag.h"
-#include "MacroAssemblerARM64.h"
+#include <JavaScriptCore/ARM64EAssembler.h>
+#include <JavaScriptCore/DisallowMacroScratchRegisterUsage.h>
+#include <JavaScriptCore/JITOperationValidation.h>
+#include <JavaScriptCore/JSCConfig.h>
+#include <JavaScriptCore/JSCPtrTag.h>
+#include <JavaScriptCore/MacroAssemblerARM64.h>
+#include <wtf/MathExtras.h>
+#include <wtf/TZoneMalloc.h>
 
 #if OS(DARWIN)
 #include <mach/vm_param.h>
@@ -47,6 +49,7 @@ namespace JSC {
 using Assembler = TARGET_ASSEMBLER;
 
 class MacroAssemblerARM64E : public MacroAssemblerARM64 {
+    WTF_MAKE_TZONE_NON_HEAP_ALLOCATABLE(MacroAssemblerARM64E);
 public:
     static constexpr unsigned numberOfPointerBits = sizeof(void*) * CHAR_BIT;
     static constexpr unsigned maxNumberOfAllowedPACBits = numberOfPointerBits - OS_CONSTANT(EFFECTIVE_ADDRESS_WIDTH);
@@ -65,6 +68,12 @@ public:
 
     ALWAYS_INLINE void tagPtr(PtrTag tag, RegisterID target)
     {
+        if (!tag) {
+            m_assembler.pacizb(target);
+            return;
+        }
+
+        RELEASE_ASSERT(Options::allowNonSPTagging());
         auto tagGPR = getCachedDataTempRegisterIDAndInvalidate();
         move(TrustedImm64(tag), tagGPR);
         m_assembler.pacib(target, tagGPR);
@@ -76,11 +85,17 @@ public:
             m_assembler.pacibsp();
             return;
         }
+        RELEASE_ASSERT(Options::allowNonSPTagging());
         m_assembler.pacib(target, tag);
     }
 
     ALWAYS_INLINE void untagPtr(PtrTag tag, RegisterID target)
     {
+        if (!tag) {
+            m_assembler.autizb(target);
+            return;
+        }
+
         auto tagGPR = getCachedDataTempRegisterIDAndInvalidate();
         move(TrustedImm64(tag), tagGPR);
         m_assembler.autib(target, tagGPR);
@@ -245,11 +260,12 @@ public:
         call(dataTempRegister, tag);
     }
 
-    ALWAYS_INLINE void callOperation(const CodePtr<OperationPtrTag> operation)
+    template<PtrTag tag>
+    ALWAYS_INLINE void callOperation(const CodePtr<tag> operation)
     {
         auto tmp = getCachedDataTempRegisterIDAndInvalidate();
         move(TrustedImmPtr(operation.taggedPtr()), tmp);
-        call(tmp, OperationPtrTag);
+        call(tmp, tag);
     }
 
     ALWAYS_INLINE Jump jump() { return MacroAssemblerARM64::jump(); }

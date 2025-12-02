@@ -29,6 +29,7 @@
 #include "Options.h"
 #include <wtf/DataLog.h>
 #include <wtf/Lock.h>
+#include <wtf/Seconds.h>
 #include <wtf/Threading.h>
 
 namespace JSC {
@@ -46,7 +47,7 @@ void initializeSuperSampler()
         return;
 
     Thread::create(
-        "JSC Super Sampler",
+        "JSC Super Sampler"_s,
         [] () {
             const int sleepQuantum = 3;
             const int printingPeriod = 3000;
@@ -59,7 +60,8 @@ void initializeSuperSampler()
                         else
                             out++;
                     }
-                    sleep(Seconds::fromMilliseconds(sleepQuantum));
+                    if (sleepQuantum)
+                        sleep(Seconds::fromMilliseconds(sleepQuantum));
                 }
                 printSuperSamplerState();
                 if (static_cast<int32_t>(g_superSamplerCount) < 0)

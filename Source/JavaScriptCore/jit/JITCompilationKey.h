@@ -51,24 +51,22 @@ public:
         , m_mode(mode)
     {
     }
-    
-    bool operator!() const
+
+    explicit operator bool() const
     {
-        return !m_codeBlock && m_mode == JITCompilationMode::InvalidCompilation;
+        return m_codeBlock || m_mode != JITCompilationMode::InvalidCompilation;
     }
     
     bool isHashTableDeletedValue() const
     {
         return !m_codeBlock && m_mode != JITCompilationMode::InvalidCompilation;
     }
-    
+
+    static constexpr bool safeToCompareToHashTableEmptyOrDeletedValue = true;
+
     JITCompilationMode mode() const { return m_mode; }
     
-    bool operator==(const JITCompilationKey& other) const
-    {
-        return m_codeBlock == other.m_codeBlock
-            && m_mode == other.m_mode;
-    }
+    friend bool operator==(const JITCompilationKey&, const JITCompilationKey&) = default;
     
     unsigned hash() const
     {
@@ -83,18 +81,9 @@ private:
     JITCompilationMode m_mode;
 };
 
-struct JITCompilationKeyHash {
-    static unsigned hash(const JITCompilationKey& key) { return key.hash(); }
-    static bool equal(const JITCompilationKey& a, const JITCompilationKey& b) { return a == b; }
-    static constexpr bool safeToCompareToEmptyOrDeleted = true;
-};
-
 } // namespace JSC
 
 namespace WTF {
-
-template<typename T> struct DefaultHash;
-template<> struct DefaultHash<JSC::JITCompilationKey> : JSC::JITCompilationKeyHash { };
 
 template<typename T> struct HashTraits;
 template<> struct HashTraits<JSC::JITCompilationKey> : SimpleClassHashTraits<JSC::JITCompilationKey> { };

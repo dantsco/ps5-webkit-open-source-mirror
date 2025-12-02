@@ -40,11 +40,11 @@ ModuleAnalyzer::ModuleAnalyzer(JSGlobalObject* globalObject, const Identifier& m
 {
 }
 
-void ModuleAnalyzer::appendRequestedModule(const Identifier& specifier, RefPtr<ScriptFetchParameters>&& assertions)
+void ModuleAnalyzer::appendRequestedModule(const Identifier& specifier, RefPtr<ScriptFetchParameters>&& attributes)
 {
     auto result = m_requestedModules.add(specifier.impl());
     if (result.isNewEntry)
-        moduleRecord()->appendRequestedModule(specifier, WTFMove(assertions));
+        moduleRecord()->appendRequestedModule(specifier, WTFMove(attributes));
 }
 
 void ModuleAnalyzer::exportVariable(ModuleProgramNode& moduleProgramNode, const RefPtr<UniquedStringImpl>& localName, const VariableEnvironmentEntry& variable)
@@ -97,7 +97,7 @@ void ModuleAnalyzer::exportVariable(ModuleProgramNode& moduleProgramNode, const 
 
 
 
-Expected<JSModuleRecord*, String> ModuleAnalyzer::analyze(ModuleProgramNode& moduleProgramNode)
+Expected<JSModuleRecord*, std::tuple<ErrorType, String>> ModuleAnalyzer::analyze(ModuleProgramNode& moduleProgramNode)
 {
     // Traverse the module AST and collect
     // * Import entries
@@ -105,7 +105,7 @@ Expected<JSModuleRecord*, String> ModuleAnalyzer::analyze(ModuleProgramNode& mod
     // * Export entries that have star (e.g. export * from "mod")
     // * Aliased export names (e.g. export { a as b })
     if (!moduleProgramNode.analyzeModule(*this))
-        return makeUnexpected(m_errorMessage);
+        return makeUnexpected(WTFMove(m_errorMessage));
 
     // Based on the collected information, categorize export entries into 3 types.
     // 1. Local export entries
@@ -147,7 +147,7 @@ Expected<JSModuleRecord*, String> ModuleAnalyzer::analyze(ModuleProgramNode& mod
     for (const auto& pair : m_moduleRecord->lexicalVariables())
         exportVariable(moduleProgramNode, pair.key, pair.value);
 
-    if (UNLIKELY(Options::dumpModuleRecord()))
+    if (Options::dumpModuleRecord()) [[unlikely]]
         m_moduleRecord->dump();
 
     return m_moduleRecord;

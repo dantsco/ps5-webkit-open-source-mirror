@@ -355,11 +355,7 @@ private:
             return !!reg;
         }
         
-        bool operator==(const RegConst& other) const
-        {
-            return reg == other.reg
-                && constant == other.constant;
-        }
+        friend bool operator==(const RegConst&, const RegConst&) = default;
 
         bool operator<(const RegConst& other) const
         {
@@ -398,12 +394,7 @@ private:
             return slot && reg;
         }
         
-        bool operator==(const RegSlot& other) const
-        {
-            return slot == other.slot
-                && reg == other.reg
-                && mode == other.mode;
-        }
+        friend bool operator==(const RegSlot&, const RegSlot&) = default;
 
         bool operator<(const RegSlot& other) const
         {
@@ -448,11 +439,7 @@ private:
             return slot;
         }
         
-        bool operator==(const SlotConst& other) const
-        {
-            return slot == other.slot
-                && constant == other.constant;
-        }
+        friend bool operator==(const SlotConst&, const SlotConst&) = default;
 
         bool operator<(const SlotConst& other) const
         {
@@ -590,13 +577,13 @@ private:
 
         void sort()
         {
-            std::sort(regConst.begin(), regConst.end(), [] (const RegConst& a, const RegConst& b) {
+            std::ranges::sort(regConst, [](const auto& a, const auto& b) {
                 return a < b;
             });
-            std::sort(slotConst.begin(), slotConst.end(), [] (const SlotConst& a, const SlotConst& b) {
+            std::ranges::sort(slotConst, [](const auto& a, const auto& b) {
                 return a < b;
             });
-            std::sort(regSlot.begin(), regSlot.end(), [] (const RegSlot& a, const RegSlot& b) {
+            std::ranges::sort(regSlot, [](const auto& a, const auto& b) {
                 return a < b;
             });
 #if ASSERT_ENABLED
@@ -673,7 +660,7 @@ private:
 
 void fixObviousSpills(Code& code)
 {
-    PhaseScope phaseScope(code, "fixObviousSpills");
+    PhaseScope phaseScope(code, "fixObviousSpills"_s);
 
     FixObviousSpills fixObviousSpills(code);
     fixObviousSpills.run();

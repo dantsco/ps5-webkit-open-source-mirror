@@ -25,6 +25,8 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(ASSEMBLER) && CPU(RISCV64)
 
 #include "AbstractMacroAssembler.h"
@@ -118,6 +120,7 @@ public:
     static bool supportsFloatingPointSqrt() { return true; }
     static bool supportsFloatingPointAbs() { return true; }
     static bool supportsFloatingPointRounding() { return true; }
+    static bool supportsFloat16() { return false; }
 
     enum RelationalCondition {
         Equal = Assembler::ConditionEQ,
@@ -138,6 +141,7 @@ public:
     }
 
     enum ResultCondition {
+        Carry, // <- not implemented
         Overflow,
         Signed,
         PositiveOrZero,
@@ -653,6 +657,14 @@ public:
         m_assembler.maskRegister<32>(dest);
     }
 
+    void lshift32(TrustedImm32 imm, RegisterID shiftAmount, RegisterID dest)
+    {
+        auto temp = temps<Data>();
+        move(imm, temp.data());
+        m_assembler.sllwInsn(dest, temp.data(), shiftAmount);
+        m_assembler.maskRegister<32>(dest);
+    }
+
     void lshift32(Address src, RegisterID shiftAmount, RegisterID dest)
     {
         auto temp = temps<Data>();
@@ -670,6 +682,13 @@ public:
         m_assembler.sllInsn(dest, src, shiftAmount);
     }
 
+    void lshift64(TrustedImm32 imm, RegisterID shiftAmount, RegisterID dest)
+    {
+        auto temp = temps<Data>();
+        move(imm, temp.data());
+        lshift64(temp.data(), shiftAmount, dest);
+    }
+
     void lshift64(TrustedImm32 shiftAmount, RegisterID dest)
     {
         lshift64(dest, shiftAmount, dest);
@@ -677,6 +696,8 @@ public:
 
     void lshift64(RegisterID src, TrustedImm32 imm, RegisterID dest)
     {
+        if (!imm.m_value) [[unlikely]]
+            return move(src, dest);
         m_assembler.slliInsn(dest, src, uint32_t(imm.m_value & ((1 << 6) - 1)));
     }
 
@@ -709,6 +730,14 @@ public:
         m_assembler.maskRegister<32>(dest);
     }
 
+    void rshift32(TrustedImm32 imm, RegisterID shiftAmount, RegisterID dest)
+    {
+        auto temp = temps<Data>();
+        move(imm, temp.data());
+        m_assembler.srawInsn(dest, temp.data(), shiftAmount);
+        m_assembler.maskRegister<32>(dest);
+    }
+
     void rshift64(RegisterID shiftAmount, RegisterID dest)
     {
         rshift64(dest, shiftAmount, dest);
@@ -726,6 +755,8 @@ public:
 
     void rshift64(RegisterID src, TrustedImm32 imm, RegisterID dest)
     {
+        if (!imm.m_value) [[unlikely]]
+            return move(src, dest);
         m_assembler.sraiInsn(dest, src, uint32_t(imm.m_value & ((1 << 6) - 1)));
     }
 
@@ -751,6 +782,21 @@ public:
         m_assembler.maskRegister<32>(dest);
     }
 
+    void urshift32(TrustedImm32 imm, RegisterID shiftAmount, RegisterID dest)
+    {
+        auto temp = temps<Data>();
+        move(imm, temp.data());
+        m_assembler.srlwInsn(dest, temp.data(), shiftAmount);
+        m_assembler.maskRegister<32>(dest);
+    }
+
+    void addUnsignedRightShift32(RegisterID src1, RegisterID src2, TrustedImm32 amount, RegisterID dest)
+    {
+        // dest = src1 + (src2 >> amount)
+        urshift32(src2, amount, dataTempRegister);
+        add32(src1, dataTempRegister, dest);
+    }
+
     void urshift64(RegisterID shiftAmount, RegisterID dest)
     {
         urshift64(dest, shiftAmount, dest);
@@ -768,6 +814,8 @@ public:
 
     void urshift64(RegisterID src, TrustedImm32 imm, RegisterID dest)
     {
+        if (!imm.m_value) [[unlikely]]
+            return move(src, dest);
         m_assembler.srliInsn(dest, src, uint32_t(imm.m_value & ((1 << 6) - 1)));
     }
 
@@ -813,6 +861,25 @@ public:
         loadImmediate(TrustedImmPtr(address), temp.memory());
         m_assembler.lbInsn(dest, temp.memory(), Imm::I<0>());
         m_assembler.maskRegister<32>(dest);
+    }
+
+    void load8SignedExtendTo64(Address address, RegisterID dest)
+    {
+        auto resolution = resolveAddress(address, lazyTemp<Memory>());
+        m_assembler.lbInsn(dest, resolution.base, Imm::I(resolution.offset));
+    }
+
+    void load8SignedExtendTo64(BaseIndex address, RegisterID dest)
+    {
+        auto resolution = resolveAddress(address, lazyTemp<Memory>());
+        m_assembler.lbInsn(dest, resolution.base, Imm::I(resolution.offset));
+    }
+
+    void load8SignedExtendTo64(const void* address, RegisterID dest)
+    {
+        auto temp = temps<Memory>();
+        loadImmediate(TrustedImmPtr(address), temp.memory());
+        m_assembler.lbInsn(dest, temp.memory(), Imm::I<0>());
     }
 
     void load16(Address address, RegisterID dest)
@@ -875,6 +942,44 @@ public:
         m_assembler.maskRegister<32>(dest);
     }
 
+    void load16SignedExtendTo64(Address address, RegisterID dest)
+    {
+        auto resolution = resolveAddress(address, lazyTemp<Memory>());
+        m_assembler.lhInsn(dest, resolution.base, Imm::I(resolution.offset));
+    }
+
+    void load16SignedExtendTo64(BaseIndex address, RegisterID dest)
+    {
+        auto resolution = resolveAddress(address, lazyTemp<Memory>());
+        m_assembler.lhInsn(dest, resolution.base, Imm::I(resolution.offset));
+    }
+
+    void load16SignedExtendTo64(const void* address, RegisterID dest)
+    {
+        auto temp = temps<Memory>();
+        loadImmediate(TrustedImmPtr(address), temp.memory());
+        m_assembler.lhInsn(dest, temp.memory(), Imm::I<0>());
+    }
+
+    void load32SignedExtendTo64(Address address, RegisterID dest)
+    {
+        auto resolution = resolveAddress(address, lazyTemp<Memory>());
+        m_assembler.lwInsn(dest, resolution.base, Imm::I(resolution.offset));
+    }
+
+    void load32SignedExtendTo64(BaseIndex address, RegisterID dest)
+    {
+        auto resolution = resolveAddress(address, lazyTemp<Memory>());
+        m_assembler.lwInsn(dest, resolution.base, Imm::I(resolution.offset));
+    }
+
+    void load32SignedExtendTo64(const void* address, RegisterID dest)
+    {
+        auto temp = temps<Memory>();
+        loadImmediate(TrustedImmPtr(address), temp.memory());
+        m_assembler.lwInsn(dest, temp.memory(), Imm::I<0>());
+    }
+
     void load32(Address address, RegisterID dest)
     {
         auto resolution = resolveAddress(address, lazyTemp<Memory>());
@@ -935,6 +1040,11 @@ public:
         }
     }
 
+    void loadPair32(Address src, RegisterID dest1, RegisterID dest2)
+    {
+        loadPair32(src.base, TrustedImm32(src.offset), dest1, dest2);
+    }
+
     void loadPair64(RegisterID src, RegisterID dest1, RegisterID dest2)
     {
         loadPair64(src, TrustedImm32(0), dest1, dest2);
@@ -950,6 +1060,11 @@ public:
             load64(Address(src, offset.m_value), dest1);
             load64(Address(src, offset.m_value + 8), dest2);
         }
+    }
+
+    void loadPair64(Address src, RegisterID dest1, RegisterID dest2)
+    {
+        loadPair64(src.base, TrustedImm32(src.offset), dest1, dest2);
     }
 
     void store8(RegisterID src, Address address)
@@ -1213,14 +1328,84 @@ public:
         m_assembler.sdInsn(temp.memory(), immRegister, Imm::S<0>());
     }
 
+    void transfer32(Address src, Address dest)
+    {
+        if (src == dest)
+            return;
+        auto temp = temps<Data>();
+        load32(src, temp.data());
+        store32(temp.data(), dest);
+    }
+
     void transfer64(Address src, Address dest)
     {
+        if (src == dest)
+            return;
         auto temp = temps<Data>();
         load64(src, temp.data());
         store64(temp.data(), dest);
     }
 
+    void transferFloat(Address src, Address dest)
+    {
+        transfer32(src, dest);
+    }
+
+    void transferDouble(Address src, Address dest)
+    {
+        transfer64(src, dest);
+    }
+
+    void transferVector(Address src, Address dest)
+    {
+        if (src == dest)
+            return;
+        loadVector(src, fpTempRegister);
+        storeVector(fpTempRegister, dest);
+    }
+
     void transferPtr(Address src, Address dest)
+    {
+        transfer64(src, dest);
+    }
+
+    void transfer32(BaseIndex src, BaseIndex dest)
+    {
+        if (src == dest)
+            return;
+        auto temp = temps<Data>();
+        load32(src, temp.data());
+        store32(temp.data(), dest);
+    }
+
+    void transfer64(BaseIndex src, BaseIndex dest)
+    {
+        if (src == dest)
+            return;
+        auto temp = temps<Data>();
+        load64(src, temp.data());
+        store64(temp.data(), dest);
+    }
+
+    void transferFloat(BaseIndex src, BaseIndex dest)
+    {
+        transfer32(src, dest);
+    }
+
+    void transferDouble(BaseIndex src, BaseIndex dest)
+    {
+        transfer64(src, dest);
+    }
+
+    void transferVector(BaseIndex src, BaseIndex dest)
+    {
+        if (src == dest)
+            return;
+        loadVector(src, fpTempRegister);
+        storeVector(fpTempRegister, dest);
+    }
+
+    void transferPtr(BaseIndex src, BaseIndex dest)
     {
         transfer64(src, dest);
     }
@@ -1236,6 +1421,11 @@ public:
         store32(src2, Address(dest, offset.m_value + 4));
     }
 
+    void storePair32(RegisterID src1, RegisterID src2, Address dest)
+    {
+        storePair32(src1, src2, dest.base, TrustedImm32(dest.offset));
+    }
+
     void storePair64(RegisterID src1, RegisterID src2, RegisterID dest)
     {
         storePair64(src1, src2, dest, TrustedImm32(0));
@@ -1245,6 +1435,11 @@ public:
     {
         store64(src1, Address(dest, offset.m_value));
         store64(src2, Address(dest, offset.m_value + 8));
+    }
+
+    void storePair64(RegisterID src1, RegisterID src2, Address dest)
+    {
+        storePair64(src1, src2, dest.base, TrustedImm32(dest.offset));
     }
 
     void zeroExtend8To32(RegisterID src, RegisterID dest)
@@ -1339,6 +1534,9 @@ public:
 
     void and32(TrustedImm32 imm, RegisterID op2, RegisterID dest)
     {
+        if (imm.m_value == -1)
+            return zeroExtend32ToWord(op2, dest);
+
         if (!Imm::isValid<Imm::IType>(imm.m_value)) {
             auto temp = temps<Data>();
             loadImmediate(imm, temp.data());
@@ -1374,6 +1572,9 @@ public:
 
     void and64(TrustedImm32 imm, RegisterID op2, RegisterID dest)
     {
+        if (imm.m_value == -1)
+            return move(op2, dest);
+
         if (Imm::isValid<Imm::IType>(imm.m_value)) {
             m_assembler.andiInsn(dest, op2, Imm::I(imm.m_value));
             return;
@@ -1391,6 +1592,9 @@ public:
 
     void and64(TrustedImm64 imm, RegisterID op2, RegisterID dest)
     {
+        if (imm.m_value == -1)
+            return move(op2, dest);
+
         if (Imm::isValid<Imm::IType>(imm.m_value)) {
             m_assembler.andiInsn(dest, op2, Imm::I(imm.m_value));
             return;
@@ -1724,7 +1928,8 @@ public:
 
     void move(RegisterID src, RegisterID dest)
     {
-        m_assembler.addiInsn(dest, src, Imm::I<0>());
+        if (src != dest)
+            m_assembler.addiInsn(dest, src, Imm::I<0>());
     }
 
     void move(TrustedImm32 imm, RegisterID dest)
@@ -1741,6 +1946,26 @@ public:
     void move(TrustedImmPtr imm, RegisterID dest)
     {
         loadImmediate(imm, dest);
+    }
+
+    void move32ToFloat(TrustedImm32 imm, FPRegisterID dest)
+    {
+        if (!imm.m_value) {
+            moveZeroToFloat(dest);
+            return;
+        }
+        move(imm, scratchRegister());
+        move32ToFloat(scratchRegister(), dest);
+    }
+
+    void move64ToDouble(TrustedImm64 imm, FPRegisterID dest)
+    {
+        if (!imm.m_value) {
+            moveZeroToDouble(dest);
+            return;
+        }
+        move(imm, scratchRegister());
+        move64ToDouble(scratchRegister(), dest);
     }
 
     void swap(RegisterID reg1, RegisterID reg2)
@@ -1772,7 +1997,8 @@ public:
 
     void moveFloat(FPRegisterID src, FPRegisterID dest)
     {
-        m_assembler.fsgnjInsn<32>(dest, src, src);
+        if (src != dest)
+            m_assembler.fsgnjInsn<32>(dest, src, src);
     }
 
     void moveFloatTo32(FPRegisterID src, RegisterID dest)
@@ -1787,7 +2013,8 @@ public:
 
     void moveDouble(FPRegisterID src, FPRegisterID dest)
     {
-        m_assembler.fsgnjInsn<64>(dest, src, src);
+        if (src != dest)
+            m_assembler.fsgnjInsn<64>(dest, src, src);
     }
 
     void moveDoubleTo64(FPRegisterID src, RegisterID dest)
@@ -1799,6 +2026,10 @@ public:
     {
         m_assembler.fmvInsn<RISCV64Assembler::FMVType::D, RISCV64Assembler::FMVType::X>(dest, src);
     }
+
+    static bool supportsCountPopulation() { return false; }
+    MACRO_ASSEMBLER_RISCV64_TEMPLATED_NOOP_METHOD(countPopulation32);
+    MACRO_ASSEMBLER_RISCV64_TEMPLATED_NOOP_METHOD(countPopulation64);
 
     // The RISC-V V vector extension is not yet standardized
     MACRO_ASSEMBLER_RISCV64_TEMPLATED_NOOP_METHOD(moveVector);
@@ -1890,6 +2121,12 @@ public:
     static void replaceWithJump(CodeLocationLabel<startTag> instructionStart, CodeLocationLabel<destTag> destination)
     {
         Assembler::replaceWithJump(instructionStart.dataLocation(), destination.dataLocation());
+    }
+
+    template<PtrTag startTag>
+    static void replaceWithNops(CodeLocationLabel<startTag> instructionStart, size_t memoryToFillWithNopsInBytes)
+    {
+        Assembler::replaceWithNops(instructionStart.dataLocation(), memoryToFillWithNopsInBytes);
     }
 
     static ptrdiff_t maxJumpReplacementSize()
@@ -2096,6 +2333,13 @@ public:
         compareFinalize(cond, lhs, temp.data(), dest);
     }
 
+    void compare64(RelationalCondition cond, RegisterID lhs, TrustedImm64 imm, RegisterID dest)
+    {
+        auto temp = temps<Data>();
+        loadImmediate(imm, temp.data());
+        compareFinalize(cond, lhs, temp.data(), dest);
+    }
+
     void test8(ResultCondition cond, Address address, TrustedImm32 imm, RegisterID dest)
     {
         auto temp = temps<Data, Memory>();
@@ -2172,6 +2416,24 @@ public:
         auto temp = temps<Data, Memory>();
         loadImmediate(TrustedImmPtr(address.m_ptr), temp.memory());
         m_assembler.lbInsn(temp.memory(), temp.memory(), Imm::I<0>());
+        loadImmediate(imm, temp.data());
+        return makeBranch(cond, temp.memory(), temp.data());
+    }
+
+    Jump branch16(RelationalCondition cond, Address address, TrustedImm32 imm)
+    {
+        auto temp = temps<Data, Memory>();
+        auto resolution = resolveAddress(address, temp.memory());
+        m_assembler.lhInsn(temp.memory(), resolution.base, Imm::I(resolution.offset));
+        loadImmediate(imm, temp.data());
+        return makeBranch(cond, temp.memory(), temp.data());
+    }
+
+    Jump branch16(RelationalCondition cond, AbsoluteAddress address, TrustedImm32 imm)
+    {
+        auto temp = temps<Data, Memory>();
+        loadImmediate(TrustedImmPtr(address.m_ptr), temp.memory());
+        m_assembler.lhInsn(temp.memory(), temp.memory(), Imm::I<0>());
         loadImmediate(imm, temp.data());
         return makeBranch(cond, temp.memory(), temp.data());
     }
@@ -2350,6 +2612,15 @@ public:
     Jump branch32WithUnalignedHalfWords(RelationalCondition cond, BaseIndex address, TrustedImm32 imm)
     {
         return branch32(cond, address, imm);
+    }
+
+    Jump branch32WithMemory16(RelationalCondition cond, Address left, RegisterID right)
+    {
+        auto temp = temps<Data, Memory>();
+        MacroAssemblerHelpers::load16OnCondition(*this, cond, left, temp.data());
+        m_assembler.signExtend<32>(temp.data(), temp.data());
+        m_assembler.signExtend<32>(temp.memory(), right);
+        return makeBranch(cond, temp.data(), temp.memory());
     }
 
     Jump branchAdd32(ResultCondition cond, RegisterID src, RegisterID dest)
@@ -3011,7 +3282,8 @@ public:
     Call call(RegisterID target, RegisterID callTag) { UNUSED_PARAM(callTag); return call(target, NoPtrTag); }
     Call call(Address address, RegisterID callTag) { UNUSED_PARAM(callTag); return call(address, NoPtrTag); }
 
-    void callOperation(const CodePtr<OperationPtrTag> operation)
+    template<PtrTag tag>
+    void callOperation(const CodePtr<tag> operation)
     {
         auto temp = temps<Data>();
         loadImmediate(TrustedImmPtr(operation.taggedPtr()), temp.data());
@@ -3220,6 +3492,16 @@ public:
     void floorDouble(FPRegisterID src, FPRegisterID dest)
     {
         roundFP<64, RISCV64Assembler::FPRoundingMode::RDN>(src, dest);
+    }
+
+    void truncDouble(FPRegisterID src, FPRegisterID dst)
+    {
+        roundTowardZeroDouble(src, dst);
+    }
+
+    void truncFloat(FPRegisterID src, FPRegisterID dst)
+    {
+        roundTowardZeroFloat(src, dst);
     }
 
     void roundTowardNearestIntFloat(FPRegisterID src, FPRegisterID dest)
@@ -3467,7 +3749,7 @@ public:
         m_assembler.ebreakInsn();
     }
 
-    void breakpoint(uint16_t = 0xc471)
+    void breakpoint(uint16_t = 0)
     {
         m_assembler.ebreakInsn();
     }
@@ -3996,6 +4278,82 @@ public:
         m_assembler.fsgnjInsn<64>(dest, falseSrc, falseSrc);
     }
 
+    void loadFloat16(Address address, FPRegisterID dest)
+    {
+        UNUSED_PARAM(address);
+        UNUSED_PARAM(dest);
+        UNREACHABLE_FOR_PLATFORM();
+    }
+
+    void loadFloat16(BaseIndex address, FPRegisterID dest)
+    {
+        UNUSED_PARAM(address);
+        UNUSED_PARAM(dest);
+        UNREACHABLE_FOR_PLATFORM();
+    }
+
+    void loadFloat16(TrustedImmPtr address, FPRegisterID dest)
+    {
+        UNUSED_PARAM(address);
+        UNUSED_PARAM(dest);
+        UNREACHABLE_FOR_PLATFORM();
+    }
+
+    void storeFloat16(FPRegisterID src, Address address)
+    {
+        UNUSED_PARAM(src);
+        UNUSED_PARAM(address);
+        UNREACHABLE_FOR_PLATFORM();
+    }
+
+    void storeFloat16(FPRegisterID src, BaseIndex address)
+    {
+        UNUSED_PARAM(src);
+        UNUSED_PARAM(address);
+        UNREACHABLE_FOR_PLATFORM();
+    }
+
+    void convertFloat16ToDouble(FPRegisterID src, FPRegisterID dest)
+    {
+        UNUSED_PARAM(src);
+        UNUSED_PARAM(dest);
+        UNREACHABLE_FOR_PLATFORM();
+    }
+
+    void convertDoubleToFloat16(FPRegisterID src, FPRegisterID dest)
+    {
+        UNUSED_PARAM(src);
+        UNUSED_PARAM(dest);
+        UNREACHABLE_FOR_PLATFORM();
+    }
+
+    void moveZeroToFloat16(FPRegisterID reg)
+    {
+        UNUSED_PARAM(reg);
+        UNREACHABLE_FOR_PLATFORM();
+    }
+
+    void move16ToFloat16(RegisterID src, FPRegisterID dest)
+    {
+        UNUSED_PARAM(src);
+        UNUSED_PARAM(dest);
+        UNREACHABLE_FOR_PLATFORM();
+    }
+
+    void move16ToFloat16(TrustedImm32 imm, FPRegisterID dest)
+    {
+        UNUSED_PARAM(imm);
+        UNUSED_PARAM(dest);
+        UNREACHABLE_FOR_PLATFORM();
+    }
+
+    void moveFloat16To16(FPRegisterID src, RegisterID dest)
+    {
+        UNUSED_PARAM(src);
+        UNUSED_PARAM(dest);
+        UNREACHABLE_FOR_PLATFORM();
+    }
+
 private:
     enum class ArithmeticOperation {
         Addition,
@@ -4004,10 +4362,8 @@ private:
     };
 
     struct Imm {
-        template<typename T>
-        using EnableIfInteger = std::enable_if_t<(std::is_same_v<T, int32_t> || std::is_same_v<T, int64_t>)>;
-
-        template<typename ImmediateType, typename T, typename = EnableIfInteger<T>>
+        template<typename ImmediateType, typename T>
+            requires (std::same_as<T, int32_t> || std::same_as<T, int64_t>)
         static bool isValid(T value) { return ImmediateType::isValid(value); }
 
         using IType = RISCV64Assembler::IImmediate;
@@ -4167,6 +4523,7 @@ private:
     Jump branchTestFinalize(ResultCondition cond, RegisterID src)
     {
         switch (cond) {
+        case Carry:
         case Overflow:
             break;
         case Signed:
@@ -4187,14 +4544,14 @@ private:
     Jump branchForArithmeticOverflow(RegisterID op1, Op2Type op2, RegisterID dest)
     {
         static_assert(bitSize == 32 || bitSize == 64);
-        static_assert(std::is_same_v<Op2Type, RegisterID> || std::is_same_v<Op2Type, TrustedImm32>);
+        static_assert(std::same_as<Op2Type, RegisterID> || std::same_as<Op2Type, TrustedImm32>);
         auto temp = temps<Data, Memory>();
 
         if constexpr (bitSize == 32) {
             RELEASE_ASSERT(op1 == temp.data() || op1 != temp.memory());
             m_assembler.signExtend<32>(temp.data(), op1);
 
-            if constexpr (!std::is_same_v<Op2Type, TrustedImm32>) {
+            if constexpr (!std::same_as<Op2Type, TrustedImm32>) {
                 RELEASE_ASSERT(op2 == temp.memory() || op1 != temp.data());
                 m_assembler.signExtend<32>(temp.memory(), op2);
             } else
@@ -4231,7 +4588,7 @@ private:
         RELEASE_ASSERT(dest != temp.data() && dest != temp.memory());
 
         RegisterID rop2;
-        if constexpr (std::is_same_v<Op2Type, TrustedImm32>) {
+        if constexpr (std::same_as<Op2Type, TrustedImm32>) {
             loadImmediate(op2, temp.memory());
             rop2 = temp.memory();
         } else {
@@ -4568,6 +4925,7 @@ private:
 
         end.link(this);
     }
+
 };
 
 } // namespace JSC

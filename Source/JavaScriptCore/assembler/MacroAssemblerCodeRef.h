@@ -25,8 +25,8 @@
 
 #pragma once
 
-#include "ExecutableMemoryHandle.h"
-#include "JSCPtrTag.h"
+#include <JavaScriptCore/ExecutableMemoryHandle.h>
+#include <JavaScriptCore/JSCPtrTag.h>
 #include <wtf/CodePtr.h>
 #include <wtf/DataLog.h>
 #include <wtf/PrintStream.h>
@@ -152,10 +152,10 @@ public:
     
     void dump(PrintStream& out) const
     {
-        m_codePtr.dumpWithName("CodeRef", out);
+        m_codePtr.dumpWithName("CodeRef"_s, out);
     }
 
-    static ptrdiff_t offsetOfCodePtr() { return OBJECT_OFFSETOF(MacroAssemblerCodeRef, m_codePtr); }
+    static constexpr ptrdiff_t offsetOfCodePtr() { return OBJECT_OFFSETOF(MacroAssemblerCodeRef, m_codePtr); }
 
 private:
     template<PtrTag otherTag>

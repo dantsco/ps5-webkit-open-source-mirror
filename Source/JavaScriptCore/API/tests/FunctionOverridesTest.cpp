@@ -40,12 +40,8 @@ int testFunctionOverrides()
     JSC::initialize();
 
     const char* oldFunctionOverrides = Options::functionOverrides();
-
-#if PLATFORM(PLAYSTATION)
-    Options::functionOverrides() = "/app0/testapiScripts/testapi-function-overrides.js";
-#else
+    
     Options::functionOverrides() = "./testapiScripts/testapi-function-overrides.js";
-#endif
     JSC::FunctionOverrides::reinstallOverrides();
 
     JSGlobalContextRef context = JSGlobalContextCreateInGroup(nullptr, nullptr);
@@ -70,7 +66,7 @@ int testFunctionOverrides()
         "'function f1() { /* Overridden f1 */ }\\n"
         "function() { /* Overridden f2 */ }\\n"
         "function() { /* Overridden f3 */ }\\n"
-        "function anonymous() { /* Overridden f4 */ }\\n';"
+        "function anonymous(\\n) { /* Overridden f4 */ }\\n';"
         "var result = (str == expectedStr);" "\n"
         "result";
 
@@ -87,7 +83,7 @@ int testFunctionOverrides()
     JSC::Options::functionOverrides() = oldFunctionOverrides;
     JSC::FunctionOverrides::reinstallOverrides();
 
-    printf("%s: function override tests.\n", failed ? "FAIL" : "PASS");
+    SAFE_PRINTF("%s: function override tests.\n", failed ? "FAIL"_s : "PASS"_s);
 
     return failed;
 }

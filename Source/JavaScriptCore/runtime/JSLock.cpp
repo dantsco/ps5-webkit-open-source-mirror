@@ -39,18 +39,6 @@
 
 namespace JSC {
 
-Lock GlobalJSLock::s_sharedInstanceMutex;
-
-GlobalJSLock::GlobalJSLock()
-{
-    s_sharedInstanceMutex.lock();
-}
-
-GlobalJSLock::~GlobalJSLock()
-{
-    s_sharedInstanceMutex.unlock();
-}
-
 JSLockHolder::JSLockHolder(JSGlobalObject* globalObject)
     : JSLockHolder(globalObject->vm())
 {
@@ -82,9 +70,7 @@ JSLock::JSLock(VM* vm)
 {
 }
 
-JSLock::~JSLock()
-{
-}
+JSLock::~JSLock() = default;
 
 void JSLock::willDestroyVM(VM* vm)
 {
@@ -110,7 +96,7 @@ void JSLock::lock(intptr_t lockCount) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
 #endif
 
     bool success = m_lock.tryLock();
-    if (UNLIKELY(!success)) {
+    if (!success) [[unlikely]] {
         if (currentThreadIsHoldingLock()) {
             m_lockCount += lockCount;
             return;
@@ -118,7 +104,7 @@ void JSLock::lock(intptr_t lockCount) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
         m_lock.lock();
     }
 
-    m_ownerThread = &Thread::current();
+    m_ownerThread = &Thread::currentSingleton();
     WTF::storeStoreFence();
     m_hasOwnerThread = true;
     ASSERT(!m_lockCount);
@@ -133,7 +119,7 @@ void JSLock::didAcquireLock()
     if (!m_vm)
         return;
     
-    Thread& thread = Thread::current();
+    auto& thread = Thread::currentSingleton();
     ASSERT(!m_entryAtomStringTable);
     m_entryAtomStringTable = thread.setCurrentAtomStringTable(m_vm->atomStringTable());
     ASSERT(m_entryAtomStringTable);
@@ -157,14 +143,6 @@ void JSLock::didAcquireLock()
             if (isKernTCSMAvailable())
                 enableKernTCSM();
         }
-#if PLATFORM(PLAYSTATION)
-        if (UNLIKELY(Options::enableSingleThreadCheck())) {
-            // Reaching here, current thread was "NewlyAdded" to the machineThreads and "single thread check" is required.
-            // That is, if more than one threads are registered to a single VM, JSC must CRASH() here.
-            if (m_vm->heap.machineThreads().threads(AbstractLocker(NoLockingNecessary)).size() > 1)
-                CRASH();
-        }
-#endif
     }
 
     // Note: everything below must come after addCurrentThread().
@@ -173,7 +151,7 @@ void JSLock::didAcquireLock()
 #if ENABLE(SAMPLING_PROFILER)
     {
         SamplingProfiler* samplingProfiler = m_vm->samplingProfiler();
-        if (UNLIKELY(samplingProfiler))
+        if (samplingProfiler) [[unlikely]]
             samplingProfiler->noticeJSLockAcquisition();
     }
 #endif
@@ -205,32 +183,34 @@ void JSLock::unlock(intptr_t unlockCount) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
 }
 
 void JSLock::willReleaseLock()
-{   
-    RefPtr<VM> vm = m_vm;
-    if (vm) {
-        static bool useLegacyDrain = false;
+{
+    {
+        RefPtr protectedVM { m_vm };
+        if (protectedVM) {
+            static bool useLegacyDrain = false;
 #if PLATFORM(COCOA)
-        static std::once_flag once;
-        std::call_once(once, [] {
-            useLegacyDrain = !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::DoesNotDrainTheMicrotaskQueueWhenCallingObjC);
-        });
+            static std::once_flag once;
+            std::call_once(once, [] {
+                useLegacyDrain = !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::DoesNotDrainTheMicrotaskQueueWhenCallingObjC);
+            });
 #endif
 
-        if (!m_lockDropDepth || useLegacyDrain)
-            vm->drainMicrotasks();
+            if (!m_lockDropDepth || useLegacyDrain)
+                protectedVM->drainMicrotasks();
 
-        if (!vm->topCallFrame)
-            vm->clearLastException();
+            if (!protectedVM->topCallFrame)
+                protectedVM->clearLastException();
 
-        vm->heap.releaseDelayedReleasedObjects();
-        vm->setStackPointerAtVMEntry(nullptr);
-        
-        if (m_shouldReleaseHeapAccess)
-            vm->heap.releaseAccess();
+            protectedVM->heap.releaseDelayedReleasedObjects();
+            protectedVM->setStackPointerAtVMEntry(nullptr);
+
+            if (m_shouldReleaseHeapAccess)
+                protectedVM->heap.releaseAccess();
+        }
     }
 
     if (m_entryAtomStringTable) {
-        Thread::current().setCurrentAtomStringTable(m_entryAtomStringTable);
+        Thread::currentSingleton().setCurrentAtomStringTable(m_entryAtomStringTable);
         m_entryAtomStringTable = nullptr;
     }
 }
@@ -255,7 +235,7 @@ unsigned JSLock::dropAllLocks(DropAllLocks* dropper)
 
     dropper->setDropDepth(m_lockDropDepth);
 
-    Thread& thread = Thread::current();
+    auto& thread = Thread::currentSingleton();
     thread.setSavedStackPointerAtVMEntry(m_vm->stackPointerAtVMEntry());
     thread.setSavedLastStackTop(m_vm->lastStackTop());
 
@@ -282,7 +262,7 @@ void JSLock::grabAllLocks(DropAllLocks* dropper, unsigned droppedLockCount)
 
     --m_lockDropDepth;
 
-    Thread& thread = Thread::current();
+    auto& thread = Thread::currentSingleton();
     m_vm->setStackPointerAtVMEntry(thread.savedStackPointerAtVMEntry());
     m_vm->setLastStackTop(thread);
 }

@@ -3,9 +3,6 @@ list(APPEND jsc_SOURCES
     ${JAVASCRIPTCORE_DIR}/shell/playstation/TestShell.cpp
     ${JAVASCRIPTCORE_DIR}/shell/playstation/Initializer.cpp
 )
-list(APPEND testapi_SOURCES
-    ${JAVASCRIPTCORE_DIR}/shell/playstation/Initializer.cpp
-)
 
 # Get the necessary wrappers for C functions to make jsc shell
 # able to properly run tests. Depending on version, first try
@@ -22,7 +19,6 @@ endif ()
 
 set(PLAYSTATION_jsc_PROCESS_NAME "JSCShell")
 set(PLAYSTATION_jsc_MAIN_THREAD_NAME "JSCShell")
-set(PLAYSTATION_jsc_REQUIRED_SHARED_LIBRARIES libicu)
 
 if (${CMAKE_GENERATOR} MATCHES "Visual Studio")
     # Set the debugger working directory for Visual Studio
@@ -43,4 +39,5 @@ if (DEVELOPER_MODE)
     list(APPEND testb3_LIBRARIES ${MEMORY_EXTRA_LIB})
     list(APPEND testair_LIBRARIES ${MEMORY_EXTRA_LIB})
     list(APPEND testdfg_LIBRARIES ${MEMORY_EXTRA_LIB})
+    list(APPEND testwasmdebugger_LIBRARIES ${MEMORY_EXTRA_LIB})
 endif ()

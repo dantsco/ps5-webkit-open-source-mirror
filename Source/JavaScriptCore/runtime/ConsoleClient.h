@@ -25,9 +25,18 @@
 
 #pragma once
 
-#include "ConsoleTypes.h"
+#include <JavaScriptCore/ConsoleTypes.h>
 #include <wtf/Forward.h>
 #include <wtf/WeakPtr.h>
+
+namespace JSC {
+class ConsoleClient;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<JSC::ConsoleClient> : std::true_type { };
+}
 
 namespace Inspector {
 class ScriptArguments;
@@ -71,7 +80,7 @@ public:
     virtual void screenshot(JSGlobalObject*, Ref<Inspector::ScriptArguments>&&) = 0;
 
 private:
-    enum ArgumentRequirement { ArgumentRequired, ArgumentNotRequired };
+    enum class ArgumentRequirement { No, Yes };
     void internalMessageWithTypeAndLevel(MessageType, MessageLevel, JSC::JSGlobalObject*, Ref<Inspector::ScriptArguments>&&, ArgumentRequirement);
 };
 

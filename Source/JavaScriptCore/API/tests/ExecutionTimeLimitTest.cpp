@@ -35,11 +35,14 @@
 #include <wtf/Lock.h>
 #include <wtf/Threading.h>
 #include <wtf/WTFProcess.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 
 #if HAVE(MACH_EXCEPTIONS)
-#include <dispatch/dispatch.h>
+#include <wtf/darwin/DispatchExtras.h>
 #endif
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 using JSC::Options;
 
@@ -184,7 +187,7 @@ int testExecutionTimeLimit()
         timeLimit = 100_ms + tierAdjustment;
         JSContextGroupSetExecutionTimeLimit(contextGroup, timeLimit.seconds(), shouldTerminateCallback, nullptr);
         {
-#if OS(LINUX) && (CPU(MIPS) || CPU(ARM_THUMB2))
+#if OS(LINUX) && CPU(ARM_THUMB2)
             Seconds timeAfterWatchdogShouldHaveFired = 500_ms + tierAdjustment;
 #else
             Seconds timeAfterWatchdogShouldHaveFired = 300_ms + tierAdjustment;
@@ -194,7 +197,7 @@ int testExecutionTimeLimit()
             exception = nullptr;
             JSValueRef* exn = &exception;
             shouldTerminateCallbackWasCalled = false;
-            auto thread = Thread::create("Rogue thread", [=] {
+            auto thread = Thread::create("Rogue thread"_s, [=] {
                 JSEvaluateScript(context, script, nullptr, nullptr, 1, exn);
             });
 
@@ -501,10 +504,10 @@ int testExecutionTimeLimit()
                     "var startTime = currentCPUTime();"
                     "while (true) {"
                         "for (var i = 0; i < 1000; i++);"
-                            "if (currentCPUTime() - startTime > ", timeAfterWatchdogShouldHaveFired.seconds(), ") break;"
+                            "if (currentCPUTime() - startTime > "_s, timeAfterWatchdogShouldHaveFired.seconds(), ") break;"
                     "}"
                 "}"
-                "foo();"
+                "foo();"_s
             ).utf8();
 
             JSStringRef script = JSStringCreateWithUTF8CString(scriptText.data());
@@ -530,7 +533,7 @@ int testExecutionTimeLimit()
             Seconds& endTimeRef = endTime;
 
             dispatch_group_t group = dispatch_group_create();
-            dispatch_group_async(group, dispatch_get_global_queue(0, 0), ^{
+            dispatch_group_async(group, globalDispatchQueueSingleton(0, 0), ^{
                 startTimeRef = CPUTime::forCurrentThread();
                 JSEvaluateScript(contextRef, scriptRef, nullptr, nullptr, 1, &exceptionRef);
                 endTimeRef = CPUTime::forCurrentThread();
@@ -563,3 +566,5 @@ int testExecutionTimeLimit()
     
     return failed;
 }
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

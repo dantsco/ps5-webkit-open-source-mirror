@@ -27,9 +27,11 @@
 
 #if ENABLE(JIT)
 
-#include "AssemblyHelpers.h"
-#include "SIMDInfo.h"
-#include "Width.h"
+#include <JavaScriptCore/AssemblyHelpers.h>
+#include <JavaScriptCore/SIMDInfo.h>
+#include <JavaScriptCore/Width.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
@@ -634,5 +636,7 @@ private:
 };
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(JIT)

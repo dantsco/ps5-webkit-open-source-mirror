@@ -10,10 +10,6 @@ list(APPEND JavaScriptCore_PUBLIC_FRAMEWORK_HEADERS
     API/JSRemoteInspectorServer.h
 )
 
-list(REMOVE_ITEM JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
-    API/JSRemoteInspectorServer.h
-)
-
 list(APPEND JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     inspector/remote/RemoteAutomationTarget.h
     inspector/remote/RemoteConnectionToTarget.h
@@ -26,7 +22,6 @@ list(APPEND JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     inspector/remote/socket/RemoteInspectorServer.h
     inspector/remote/socket/RemoteInspectorSocket.h
     inspector/remote/socket/RemoteInspectorSocketEndpoint.h
-    inspector/remote/socket/RemoteInspectorUtils.h
 )
 
 if (UNIX)

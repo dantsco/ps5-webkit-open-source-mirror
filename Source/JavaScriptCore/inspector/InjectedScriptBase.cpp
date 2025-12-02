@@ -39,6 +39,7 @@
 #include "JSNativeStdFunction.h"
 #include "ScriptFunctionCall.h"
 #include <wtf/JSONValues.h>
+#include <wtf/text/MakeString.h>
 
 namespace Inspector {
 
@@ -63,7 +64,7 @@ static RefPtr<JSON::Value> jsToInspectorValue(JSC::JSGlobalObject* globalObject,
     if (value.isInt32())
         return JSON::Value::create(value.asInt32());
     if (value.isString())
-        return JSON::Value::create(asString(value)->value(globalObject));
+        return JSON::Value::create(asString(value)->value(globalObject).data);
 
     if (value.isObject()) {
         if (isJSArray(value)) {
@@ -81,7 +82,7 @@ static RefPtr<JSON::Value> jsToInspectorValue(JSC::JSGlobalObject* globalObject,
         JSC::VM& vm = globalObject->vm();
         auto inspectorObject = JSON::Object::create();
         auto& object = *value.getObject();
-        JSC::PropertyNameArray propertyNames(vm, JSC::PropertyNameMode::Strings, JSC::PrivateSymbolMode::Exclude);
+        JSC::PropertyNameArrayBuilder propertyNames(vm, JSC::PropertyNameMode::Strings, JSC::PrivateSymbolMode::Exclude);
         object.methodTable()->getOwnPropertyNames(&object, globalObject, propertyNames, JSC::DontEnumPropertiesMode::Exclude);
         for (auto& name : propertyNames) {
             auto inspectorValue = jsToInspectorValue(globalObject, object.get(globalObject, name), maxDepth);
@@ -104,6 +105,10 @@ RefPtr<JSON::Value> toInspectorValue(JSC::JSGlobalObject* globalObject, JSC::JSV
     return jsToInspectorValue(globalObject, value, JSON::Value::maxDepth);
 }
 
+InjectedScriptBase::InjectedScriptBase(const InjectedScriptBase&) = default;
+
+InjectedScriptBase& InjectedScriptBase::operator=(const InjectedScriptBase&) = default;
+
 InjectedScriptBase::InjectedScriptBase(const String& name)
     : m_name(name)
 {
@@ -117,9 +122,7 @@ InjectedScriptBase::InjectedScriptBase(const String& name, JSC::JSGlobalObject* 
 {
 }
 
-InjectedScriptBase::~InjectedScriptBase()
-{
-}
+InjectedScriptBase::~InjectedScriptBase() = default;
 
 bool InjectedScriptBase::hasAccessToInspectedScriptState() const
 {
@@ -196,10 +199,8 @@ void InjectedScriptBase::makeAsyncCall(ScriptFunctionCall& function, AsyncCallCa
     function.appendArgument(JSC::JSValue(jsFunction));
 
     auto result = callFunctionWithEvalEnabled(function);
-    ASSERT_UNUSED(result, result.value().isUndefined());
-
-    ASSERT(result);
-    if (!result) {
+    ASSERT_UNUSED(result, result && result.value() && result.value().isUndefined());
+    if (!result || !result.value()) {
         // Since `callback` is moved above, we can't call it if there's an exception while trying to
         // execute the `JSNativeStdFunction` inside InjectedScriptSource.js.
         jsFunction->function()(globalObject, nullptr);

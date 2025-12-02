@@ -168,14 +168,3 @@ class JSBackendCommandsGenerator(Generator):
         lines.append('InspectorBackend.activateDomain("%(domainName)s", %(debuggableTypes)s);' % activate_args)
 
         return self.wrap_with_guard_for_condition(domain.condition, "\n".join(lines))
-
-class CppBackendCommandsGenerator(JSBackendCommandsGenerator):
-    def __init__(self, *args, **kwargs):
-        JSBackendCommandsGenerator.__init__(self, *args, **kwargs)
-
-    def output_filename(self):
-        return "InspectorBackendCommands.cpp"
-
-    def generate_output(self):
-        code = JSBackendCommandsGenerator.generate_output(self).replace('"', r'\"').replace("\n", r'\n')
-        return 'const char* kInspectorBackendCommandsString = "{}";\n'.format(code)

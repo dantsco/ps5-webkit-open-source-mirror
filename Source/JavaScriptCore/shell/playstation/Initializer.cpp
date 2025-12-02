@@ -40,9 +40,6 @@ static void loadLibraryOrExit(const char* name)
 __attribute__((constructor(101)))
 static void initializer(void)
 {
-#if ENABLE(MAT)
-    loadLibraryOrExit("MemoryAnalyzer");
-#endif
     loadLibraryOrExit("SystemServices");
     loadLibraryOrExit("Perf");
     loadLibraryOrExit("PosixWebKit");

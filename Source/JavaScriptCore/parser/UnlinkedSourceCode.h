@@ -28,7 +28,7 @@
 
 #pragma once
 
-#include "SourceProvider.h"
+#include <JavaScriptCore/SourceProvider.h>
 #include <wtf/RefPtr.h>
 
 namespace JSC {
@@ -98,6 +98,8 @@ namespace JSC {
         int startOffset() const { return m_startOffset; }
         int endOffset() const { return m_endOffset; }
         int length() const { return m_endOffset - m_startOffset; }
+
+        friend bool operator==(const UnlinkedSourceCode&, const UnlinkedSourceCode&) = default;
 
     protected:
         // FIXME: Make it Ref<SourceProvidier>.

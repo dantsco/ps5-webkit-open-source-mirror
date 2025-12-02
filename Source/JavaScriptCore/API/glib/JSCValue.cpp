@@ -33,10 +33,12 @@
 #include "LiteralParser.h"
 #include "OpaqueJSString.h"
 #include "TypedArrayType.h"
+#include <array>
 #include <gobject/gvaluecollector.h>
 #include <wtf/glib/GRefPtr.h>
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/glib/WTFGType.h>
+#include <wtf/text/MakeString.h>
 
 /**
  * JSCValue:
@@ -370,7 +372,9 @@ JSCValue* jsc_value_new_string_from_bytes(JSCContext* context, GBytes* bytes)
 
     gsize dataSize;
     const auto* data = static_cast<const char*>(g_bytes_get_data(bytes, &dataSize));
-    auto string = String::fromUTF8(data, dataSize);
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib port
+    auto string = String::fromUTF8(std::span(data, dataSize));
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     JSRetainPtr<JSStringRef> jsString(Adopt, OpaqueJSString::tryCreate(WTFMove(string)).leakRef());
     return jscContextGetOrCreateValue(context, JSValueMakeString(jscContextGetJSContext(context), jsString.get())).leakRef();
 }
@@ -495,9 +499,11 @@ JSCValue* jsc_value_new_array(JSCContext* context, GType firstItemType, ...)
     while (itemType != G_TYPE_NONE) {
         GValue item;
         GUniqueOutPtr<char> error;
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib port
         G_VALUE_COLLECT_INIT(&item, itemType, args, G_VALUE_NOCOPY_CONTENTS, &error.outPtr());
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         if (error) {
-            exception = toRef(JSC::createTypeError(globalObject, makeString("failed to collect array item: "_s, error.get())));
+            exception = toRef(JSC::createTypeError(globalObject, makeString("failed to collect array item: "_s, unsafeSpan(error.get()))));
             jscContextHandleExceptionIfNeeded(context, exception);
             jsArray = nullptr;
             break;
@@ -568,9 +574,11 @@ JSCValue* jsc_value_new_array_from_strv(JSCContext* context, const char* const* 
     if (!strvLength)
         return jsc_value_new_array(context, G_TYPE_NONE);
 
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib port
     GRefPtr<GPtrArray> gArray = adoptGRef(g_ptr_array_new_full(strvLength, g_object_unref));
     for (unsigned i = 0; i < strvLength; i++)
         g_ptr_array_add(gArray.get(), jsc_value_new_string(context, strv[i]));
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
     return jsc_value_new_array_from_garray(context, gArray.get());
 }
@@ -853,11 +861,13 @@ char** jsc_value_object_enumerate_properties(JSCValue* value)
 
     auto* result = static_cast<char**>(g_new0(char*, propertiesArraySize + 1));
     for (unsigned i = 0; i < propertiesArraySize; ++i) {
-        auto* jsString = JSPropertyNameArrayGetNameAtIndex(propertiesArray, i);
-        size_t maxSize = JSStringGetMaximumUTF8CStringSize(jsString);
+        RefPtr jsString = JSPropertyNameArrayGetNameAtIndex(propertiesArray, i);
+        size_t maxSize = JSStringGetMaximumUTF8CStringSize(jsString.get());
         auto* string = static_cast<char*>(g_malloc(maxSize));
-        JSStringGetUTF8CString(jsString, string, maxSize);
+        JSStringGetUTF8CString(jsString.get(), string, maxSize);
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib port
         result[i] = string;
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     }
     JSPropertyNameArrayRelease(propertiesArray);
 
@@ -868,12 +878,12 @@ static JSValueRef jsObjectCall(JSGlobalContextRef jsContext, JSObjectRef functio
 {
     switch (functionType) {
     case JSC::JSCCallbackFunction::Type::Constructor:
-        return JSObjectCallAsConstructor(jsContext, function, arguments.size(), arguments.data(), exception);
+        return JSObjectCallAsConstructor(jsContext, function, arguments.size(), arguments.span().data(), exception);
     case JSC::JSCCallbackFunction::Type::Method:
         ASSERT(thisObject);
-        FALLTHROUGH;
+        [[fallthrough]];
     case JSC::JSCCallbackFunction::Type::Function:
-        return JSObjectCallAsFunction(jsContext, function, thisObject, arguments.size(), arguments.data(), exception);
+        return JSObjectCallAsFunction(jsContext, function, thisObject, arguments.size(), arguments.span().data(), exception);
     }
     RELEASE_ASSERT_NOT_REACHED();
 }
@@ -891,9 +901,11 @@ static GRefPtr<JSCValue> jscValueCallFunction(JSCValue* value, JSObjectRef funct
     while (parameterType != G_TYPE_NONE) {
         GValue parameter;
         GUniqueOutPtr<char> error;
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib port
         G_VALUE_COLLECT_INIT(&parameter, parameterType, args, G_VALUE_NOCOPY_CONTENTS, &error.outPtr());
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         if (error) {
-            exception = toRef(JSC::createTypeError(globalObject, makeString("failed to collect function paramater: "_s, error.get())));
+            exception = toRef(JSC::createTypeError(globalObject, makeString("failed to collect function paramater: "_s, unsafeSpan(error.get()))));
             jscContextHandleExceptionIfNeeded(priv->context.get(), exception);
             return adoptGRef(jsc_value_new_undefined(priv->context.get()));
         }
@@ -1001,12 +1013,11 @@ JSCValue* jsc_value_object_invoke_methodv(JSCValue* value, const char* name, uns
     if (jscContextHandleExceptionIfNeeded(priv->context.get(), exception))
         return jsc_value_new_undefined(priv->context.get());
 
-    Vector<JSValueRef> arguments;
-    if (parametersCount) {
-        arguments.reserveInitialCapacity(parametersCount);
-        for (unsigned i = 0; i < parametersCount; ++i)
-            arguments.uncheckedAppend(jscValueGetJSValue(parameters[i]));
-    }
+    Vector<JSValueRef> arguments(parametersCount, [&](size_t i) {
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib port
+        return jscValueGetJSValue(parameters[i]);
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+    });
 
     auto result = jsObjectCall(jsContext, function, JSC::JSCCallbackFunction::Type::Method, object, arguments, &exception);
     if (jscContextHandleExceptionIfNeeded(priv->context.get(), exception))
@@ -1046,7 +1057,7 @@ void jsc_value_object_define_property_data(JSCValue* value, const char* property
     JSCValuePrivate* priv = value->priv;
     auto* jsContext = jscContextGetJSContext(priv->context.get());
     JSC::JSGlobalObject* globalObject = toJS(jsContext);
-    JSC::VM& vm = globalObject->vm();
+    Ref vm = globalObject->vm();
     JSC::JSLockHolder locker(vm);
     auto scope = DECLARE_CATCH_SCOPE(vm);
 
@@ -1067,7 +1078,7 @@ void jsc_value_object_define_property_data(JSCValue* value, const char* property
     descriptor.setEnumerable(flags & JSC_VALUE_PROPERTY_ENUMERABLE);
     descriptor.setConfigurable(flags & JSC_VALUE_PROPERTY_CONFIGURABLE);
     descriptor.setWritable(flags & JSC_VALUE_PROPERTY_WRITABLE);
-    object->methodTable()->defineOwnProperty(object, globalObject, name->identifier(&vm), descriptor, true);
+    object->methodTable()->defineOwnProperty(object, globalObject, name->identifier(vm.ptr()), descriptor, true);
     if (handleExceptionIfNeeded(scope, jsContext, &exception) == ExceptionStatus::DidThrow) {
         jscContextHandleExceptionIfNeeded(priv->context.get(), exception);
         return;
@@ -1079,7 +1090,7 @@ static void jscValueObjectDefinePropertyAccessor(JSCValue* value, const char* pr
     JSCValuePrivate* priv = value->priv;
     auto* jsContext = jscContextGetJSContext(priv->context.get());
     JSC::JSGlobalObject* globalObject = toJS(jsContext);
-    JSC::VM& vm = globalObject->vm();
+    Ref vm = globalObject->vm();
     JSC::JSLockHolder locker(vm);
     auto scope = DECLARE_CATCH_SCOPE(vm);
 
@@ -1112,7 +1123,7 @@ static void jscValueObjectDefinePropertyAccessor(JSCValue* value, const char* pr
         auto function = JSC::JSCCallbackFunction::create(vm, globalObject, "set"_s, functionType, nullptr, WTFMove(closure), G_TYPE_NONE, Vector<GType> { propertyType });
         descriptor.setSetter(function);
     }
-    object->methodTable()->defineOwnProperty(object, globalObject, name->identifier(&vm), descriptor, true);
+    object->methodTable()->defineOwnProperty(object, globalObject, name->identifier(vm.ptr()), descriptor, true);
     if (handleExceptionIfNeeded(scope, jsContext, &exception) == ExceptionStatus::DidThrow) {
         jscContextHandleExceptionIfNeeded(priv->context.get(), exception);
         return;
@@ -1131,7 +1142,7 @@ static void jscValueObjectDefinePropertyAccessor(JSCValue* value, const char* pr
  * @destroy_notify: (nullable): destroy notifier for @user_data
  *
  * Define or modify a property with @property_name in object referenced by @value. When the
- * property value needs to be getted or set, @getter and @setter callbacks will be called.
+ * property value is read or set, @getter and @setter callbacks will be called.
  * When the property is cleared in the #JSCClass context, @destroy_notify is called with
  * @user_data as parameter. This is equivalent to JavaScript <function>Object.defineProperty()</function>
  * when used with an accessor descriptor.
@@ -1169,7 +1180,7 @@ static GRefPtr<JSCValue> jscValueFunctionCreate(JSCContext* context, const char*
     else
         closure = adoptGRef(g_cclosure_new(callback, userData, reinterpret_cast<GClosureNotify>(reinterpret_cast<GCallback>(destroyNotify))));
     JSC::JSGlobalObject* globalObject = toJS(jscContextGetJSContext(context));
-    JSC::VM& vm = globalObject->vm();
+    Ref vm = globalObject->vm();
     JSC::JSLockHolder locker(vm);
     auto* functionObject = toRef(JSC::JSCCallbackFunction::create(vm, globalObject, name ? String::fromUTF8(name) : "anonymous"_s,
         JSC::JSCCallbackFunction::Type::Function, nullptr, WTFMove(closure), returnType, WTFMove(parameters)));
@@ -1206,12 +1217,9 @@ JSCValue* jsc_value_new_function(JSCContext* context, const char* name, GCallbac
 
     va_list args;
     va_start(args, paramCount);
-    Vector<GType> parameters;
-    if (paramCount) {
-        parameters.reserveInitialCapacity(paramCount);
-        for (unsigned i = 0; i < paramCount; ++i)
-            parameters.uncheckedAppend(va_arg(args, GType));
-    }
+    Vector<GType> parameters(paramCount, [&](size_t) -> GType {
+        return va_arg(args, GType);
+    });
     va_end(args);
 
     return jscValueFunctionCreate(context, name, callback, userData, destroyNotify, returnType, WTFMove(parameters)).leakRef();
@@ -1246,12 +1254,11 @@ JSCValue* jsc_value_new_functionv(JSCContext* context, const char* name, GCallba
     g_return_val_if_fail(callback, nullptr);
     g_return_val_if_fail(!parametersCount || parameterTypes, nullptr);
 
-    Vector<GType> parameters;
-    if (parametersCount) {
-        parameters.reserveInitialCapacity(parametersCount);
-        for (unsigned i = 0; i < parametersCount; ++i)
-            parameters.uncheckedAppend(parameterTypes[i]);
-    }
+    Vector<GType> parameters(parametersCount, [&](size_t i) -> GType {
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib port
+        return parameterTypes[i];
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+    });
 
     return jscValueFunctionCreate(context, name, callback, userData, destroyNotify, returnType, WTFMove(parameters)).leakRef();
 }
@@ -1363,12 +1370,11 @@ JSCValue* jsc_value_function_callv(JSCValue* value, unsigned parametersCount, JS
     if (jscContextHandleExceptionIfNeeded(priv->context.get(), exception))
         return jsc_value_new_undefined(priv->context.get());
 
-    Vector<JSValueRef> arguments;
-    if (parametersCount) {
-        arguments.reserveInitialCapacity(parametersCount);
-        for (unsigned i = 0; i < parametersCount; ++i)
-            arguments.uncheckedAppend(jscValueGetJSValue(parameters[i]));
-    }
+    Vector<JSValueRef> arguments(parametersCount, [&](size_t i) {
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib port
+        return jscValueGetJSValue(parameters[i]);
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+    });
 
     auto result = jsObjectCall(jsContext, function, JSC::JSCCallbackFunction::Type::Function, nullptr, arguments, &exception);
     if (jscContextHandleExceptionIfNeeded(priv->context.get(), exception))
@@ -1449,12 +1455,11 @@ JSCValue* jsc_value_constructor_callv(JSCValue* value, unsigned parametersCount,
     if (jscContextHandleExceptionIfNeeded(priv->context.get(), exception))
         return jsc_value_new_undefined(priv->context.get());
 
-    Vector<JSValueRef> arguments;
-    if (parametersCount) {
-        arguments.reserveInitialCapacity(parametersCount);
-        for (unsigned i = 0; i < parametersCount; ++i)
-            arguments.uncheckedAppend(jscValueGetJSValue(parameters[i]));
-    }
+    Vector<JSValueRef> arguments(parametersCount, [&](size_t i) {
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib port
+        return jscValueGetJSValue(parameters[i]);
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+    });
 
     auto result = jsObjectCall(jsContext, function, JSC::JSCCallbackFunction::Type::Constructor, nullptr, arguments, &exception);
     if (jscContextHandleExceptionIfNeeded(priv->context.get(), exception))
@@ -1550,7 +1555,7 @@ gboolean jsc_value_is_array_buffer(JSCValue* value)
     using namespace JSC;
 
     JSGlobalObject* globalObject = toJS(jscContextGetJSContext(value->priv->context.get()));
-    VM& vm = globalObject->vm();
+    Ref vm = globalObject->vm();
     JSLockHolder locker(vm);
 
     JSValue jsValue = toJS(globalObject, value->priv->jsValue);
@@ -1563,7 +1568,7 @@ gboolean jsc_value_is_array_buffer(JSCValue* value)
 /**
  * jsc_value_array_buffer_get_data:
  * @value: A #JSCValue
- * @size: (nullable): location where to store the size of the memory region.
+ * @size: (out) (optional): location where to store the size of the memory region.
  *
  * Gets a pointer to memory that contains the array buffer data.
  *
@@ -1581,7 +1586,8 @@ gboolean jsc_value_is_array_buffer(JSCValue* value)
  * the meantime. Consider taking a copy of the data and using the copy instead
  * in asynchronous code.
  *
- * Returns: (transfer none): pointer to memory.
+ * Returns: (transfer none) (array length=size) (element-type guint8):
+ *   pointer to memory.
  *
  * Since: 2.38
  */
@@ -1848,7 +1854,7 @@ JSCTypedArrayType jsc_value_typed_array_get_type(JSCValue *value)
     g_return_val_if_fail(JSC_IS_VALUE(value), JSC_TYPED_ARRAY_NONE);
 
     JSC::JSGlobalObject* globalObject = toJS(jscContextGetJSContext(value->priv->context.get()));
-    JSC::VM& vm = globalObject->vm();
+    Ref vm = globalObject->vm();
     JSC::JSLockHolder locker(vm);
 
     JSC::JSValue jsValue = toJS(globalObject, value->priv->jsValue);
@@ -1945,7 +1951,9 @@ gpointer jsc_value_typed_array_get_data(JSCValue* value, gsize* length)
         *length = numElements;
     }
 
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib port
     return static_cast<uint8_t*>(bytes) + offset;
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 }
 
 /**
@@ -2086,12 +2094,12 @@ JSCValue* jsc_value_new_from_json(JSCContext* context, const char* json)
     JSC::JSValue jsValue;
     String jsonString = String::fromUTF8(json);
     if (jsonString.is8Bit()) {
-        JSC::LiteralParser<LChar> jsonParser(globalObject, jsonString.characters8(), jsonString.length(), JSC::StrictJSON);
+        JSC::LiteralParser<Latin1Character, JSC::JSONReviverMode::Disabled> jsonParser(globalObject, jsonString.span8(), JSC::StrictJSON);
         jsValue = jsonParser.tryLiteralParse();
         if (!jsValue)
             exception = toRef(JSC::createSyntaxError(globalObject, jsonParser.getErrorMessage()));
     } else {
-        JSC::LiteralParser<UChar> jsonParser(globalObject, jsonString.characters16(), jsonString.length(), JSC::StrictJSON);
+        JSC::LiteralParser<char16_t, JSC::JSONReviverMode::Disabled> jsonParser(globalObject, jsonString.span16(), JSC::StrictJSON);
         jsValue = jsonParser.tryLiteralParse();
         if (!jsValue)
             exception = toRef(JSC::createSyntaxError(globalObject, jsonParser.getErrorMessage()));
@@ -2138,4 +2146,60 @@ char* jsc_value_to_json(JSCValue* value, unsigned indent)
     }
 
     return json;
+}
+
+/**
+ * JSCExecutor:
+ * @resolve: #JSCValue function to call to resolve the promise
+ * @reject: #JSCValue function to call to reject the promise
+ * @user_data: user data
+ *
+ * A function passed to @jsc_value_new_promise called during initialization
+ *
+ * It is called like a JavaScript function, so exceptions raised will not be propagated
+ * to the context, but handled by the promise causing a rejection.
+ * @resolve and @reject can be reffed for later use to handle async task completion.
+ *
+ * Since: 2.48
+ */
+
+/**
+ * jsc_value_new_promise:
+ * @context: a #JSCContext
+ * @executor: (scope call) (closure user_data): an initialization callback
+ * @user_data: (nullable): user data passed in @executor
+ *
+ * Creates a new Promise. @executor will be invoked during promise initialization
+ * and it receives the @resolve and @reject objects than can be called to resolve
+ * or reject the promise. It is called like a JavaScript function, so exceptions raised
+ * during the executor invocation will not be propagated to the context, but
+ * handled by the promise causing a rejection.
+ *
+ * Returns: (transfer full): a deferred promise object
+ *
+ * Since: 2.48
+ */
+JSCValue* jsc_value_new_promise(JSCContext* context, JSCExecutor executor, gpointer userData)
+{
+    g_return_val_if_fail(JSC_IS_CONTEXT(context), nullptr);
+    auto* jsContext = jscContextGetJSContext(context);
+    JSObjectRef resolveObj = nullptr;
+    JSObjectRef rejectObj = nullptr;
+    JSValueRef exception = nullptr;
+    JSObjectRef promise = JSObjectMakeDeferredPromise(jsContext, &resolveObj, &rejectObj, &exception);
+    if (jscContextHandleExceptionIfNeeded(context, exception))
+        return nullptr;
+
+    constexpr size_t argumentCount = 2;
+    std::array<JSValueRef, argumentCount> arguments = { resolveObj, rejectObj };
+
+    auto callbackData = jscContextPushCallback(context, nullptr, promise, argumentCount, arguments.data());
+    GRefPtr<JSCValue> resolve = jscContextGetOrCreateValue(context, resolveObj);
+    GRefPtr<JSCValue> reject = jscContextGetOrCreateValue(context, rejectObj);
+    executor(resolve.get(), reject.get(), userData);
+    if (JSCException* unhandledException = jsc_context_get_exception(context))
+        g_object_unref(jsc_value_function_call(reject.get(), JSC_TYPE_EXCEPTION, unhandledException, G_TYPE_NONE));
+    jscContextPopCallback(context, WTFMove(callbackData));
+
+    return jscContextGetOrCreateValue(context, promise).leakRef();
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -42,6 +42,7 @@
 #import <wtf/SafeStrerror.h>
 #import <wtf/WTFProcess.h>
 #import <wtf/spi/darwin/DataVaultSPI.h>
+#import <wtf/text/StringToIntegerConversion.h>
 
 
 #if PLATFORM(COCOA)
@@ -493,7 +494,9 @@ static bool blockSignatureContainsClass()
 {
     static bool containsClass = ^{
         id block = ^(NSString *string){ return string; };
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         return _Block_has_signature(block) && strstr(_Block_signature(block), "NSString");
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     }();
     return containsClass;
 }
@@ -1802,7 +1805,7 @@ static void parallelPromiseResolveTest()
         auto* startedThreadPtr = &startedThread;
 
         JSValue *promise = [JSValue valueWithNewPromiseInContext:context fromExecutor:^(JSValue *resolve, JSValue *) {
-            thread = Thread::create("async thread", ^() {
+            thread = Thread::create("async thread"_s, [shouldResolveSoonPtr, startedThreadPtr, resolve] {
                 startedThreadPtr->store(true);
                 while (!shouldResolveSoonPtr->load()) { }
                 [resolve callWithArguments:@[[NSNull null]]];
@@ -1878,7 +1881,7 @@ static void checkModuleCodeRan(JSContext *context, JSValue *promise, JSValue *ex
     __block BOOL promiseWasResolved = false;
     [promise invokeMethod:@"then" withArguments:@[^(JSValue *exportValue) {
         promiseWasResolved = true;
-        checkResult(@"module exported value 'exp' is null", [exportValue[@"exp"] isEqualToObject:expected]);
+        checkResult(@"module exported value 'exp' is the expected value", [exportValue[@"exp"] isEqualToObject:expected]);
         checkResult(@"ran is %@", [context[@"ran"] isEqualToObject:expected]);
     }, ^(JSValue *error) {
         NSLog(@"%@", [error toString]);
@@ -2073,6 +2076,25 @@ static void testImportModuleTwice()
     }
 }
 
+static void testImportMetaURL()
+{
+    @autoreleasepool {
+        auto *context = [JSContextFetchDelegate contextWithBlockForFetch:^(JSContext * context, JSValue *, JSValue *resolve, JSValue *) {
+            [resolve callWithArguments:@[[JSScript scriptOfType:kJSScriptTypeModule
+                withSource:@"if (!import.meta.url.match(\"baz.js\")) throw new Error(\"import.meta.url doesn't seem right: \" + import.meta.url); ran++; export let exp = 1;"
+                andSourceURL:[NSURL fileURLWithPath:@"/baz.js"]
+                andBytecodeCache:nil
+                inVirtualMachine:[context virtualMachine]
+                error:nil]]];
+        }];
+        context.moduleLoaderDelegate = context;
+        context[@"ran"] = @(0);
+        JSValue *promise = [context evaluateScript:@"import('/baz.js');"];
+        JSValue *one = [JSValue valueWithInt32:1 inContext:context];
+        checkModuleCodeRan(context, promise, one);
+    }
+}
+
 static NSURL *tempFile(NSString *string)
 {
     NSURL* tempDirectory = [NSURL fileURLWithPath:NSTemporaryDirectory() isDirectory:YES];
@@ -2088,10 +2110,14 @@ static NSURL* cacheFileInDataVault(NSString* name)
         char userDir[PATH_MAX];
         RELEASE_ASSERT(confstr(_CS_DARWIN_USER_DIR, userDir, sizeof(userDir)));
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         NSString *userDirPath = [[NSFileManager defaultManager] stringWithFileSystemRepresentation:userDir length:strlen(userDir)];
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         dataVaultURL = [NSURL fileURLWithPath:userDirPath isDirectory:YES];
         dataVaultURL = [dataVaultURL URLByAppendingPathComponent:@"JavaScriptCore" isDirectory:YES];
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         rootless_mkdir_datavault(dataVaultURL.path.UTF8String, 0700, "JavaScriptCore");
+ALLOW_DEPRECATED_DECLARATIONS_END
     });
 
     return [dataVaultURL URLByAppendingPathComponent:name isDirectory:NO];
@@ -2623,6 +2649,7 @@ static void testJSScriptURL()
         context.moduleLoaderDelegate = context;
         NSURL *basic = [NSURL URLWithString:@"./basic.js" relativeToURL:resolvePathToScripts()];
         JSScript *script1 = [JSScript scriptOfType:kJSScriptTypeModule memoryMappedFromASCIIFile:basic withSourceURL:basic andBytecodeCache:nil inVirtualMachine:context.virtualMachine error:nil];
+        RELEASE_ASSERT(script1);
 
         JSValue *result1 = [context evaluateJSScript:script1];
         JSValue *null = [JSValue valueWithNullInContext:context];
@@ -2829,6 +2856,101 @@ static void testToString()
     }
 }
 
+static void testBigIntAPI()
+{
+    @autoreleasepool {
+        JSContext *context = [[JSContext alloc] init];
+        JSValue *posInfinity = [context evaluateScript:@"Infinity;"];
+        checkResult(@"Should be a bigint value", !posInfinity.toInt32);
+        checkResult(@"Should be a bigint value", !posInfinity.toUInt32);
+
+        JSValue *negInfinity = [context evaluateScript:@"-Infinity;"];
+        checkResult(@"Should be a bigint value", !negInfinity.toInt32);
+        checkResult(@"Should be a bigint value", !negInfinity.toUInt32);
+    }
+
+    @autoreleasepool {
+        JSContext *context = [[JSContext alloc] init];
+        JSValue *bigInt = [context evaluateScript:@"BigInt('42');"];
+        JSValue *notBigInt = [context evaluateScript:@"'42'"];
+        checkResult(@"Should be a bigint value", bigInt.isBigInt);
+        checkResult(@"Should not be a bigint value", !notBigInt.isBigInt);
+        checkResult(@"Should equal to 42", [[bigInt toNumber] doubleValue] == 42.0);
+    }
+
+    @autoreleasepool {
+        JSContext *context = [[JSContext alloc] init];
+        JSValue *bigInt = [JSValue valueWithNewBigIntFromString:@"42" inContext:context];
+        checkResult(@"Should be a created from Obj-C", bigInt.isBigInt);
+    }
+
+    @autoreleasepool {
+        JSContext *context = [[JSContext alloc] init];
+        JSValue *bigInt = [JSValue valueWithNewBigIntFromInt64:(int64_t)42 inContext:context];
+        checkResult(@"Should be a created from Obj-C", bigInt.isBigInt);
+
+        JSRelationCondition condition = [bigInt compareInt64:(int64_t)42];
+        checkResult(@"Should be kJSRelationConditionEqual", condition == kJSRelationConditionEqual);
+    }
+
+    @autoreleasepool {
+        JSContext *context = [[JSContext alloc] init];
+        JSValue *bigInt = [JSValue valueWithNewBigIntFromUInt64:(uint64_t)42 inContext:context];
+        checkResult(@"Should be a created from Obj-C", bigInt.isBigInt);
+
+        JSRelationCondition condition = [bigInt compareUInt64:(uint64_t)42];
+        checkResult(@"Should be kJSRelationConditionEqual", condition == kJSRelationConditionEqual);
+    }
+
+    @autoreleasepool {
+        JSContext *context = [[JSContext alloc] init];
+        double value = 42.0;
+        JSValue *bigInt = [JSValue valueWithNewBigIntFromDouble:(double)value inContext:context];
+        checkResult(@"Should be a created from Obj-C", bigInt.isBigInt);
+
+        double toDoubleResult = [bigInt toDouble];
+        checkResult(@"Should equal to value", toDoubleResult == value);
+
+        JSRelationCondition condition = [bigInt compareDouble:(double)value];
+        checkResult(@"Should be kJSRelationConditionEqual", condition == kJSRelationConditionEqual);
+
+        bigInt = [JSValue valueWithNewBigIntFromDouble:(double)42.1 inContext:context];
+        checkResult(@"Should be a nullptr", !bigInt);
+        checkResult(@"Should throw an exception", [context exception]);
+    }
+
+    @autoreleasepool {
+        JSContext *context = [[JSContext alloc] init];
+        JSValue *array = [JSValue valueWithNewArrayInContext:context];
+        checkResult(@"Should be 0", ![array toUInt64]);
+
+        JSValue *bigInt = [JSValue valueWithNewBigIntFromUInt64:(uint64_t)42 inContext:context];
+        checkResult(@"Should be a 42", [bigInt toUInt64] == 42);
+    }
+
+    @autoreleasepool {
+        JSContext *context = [[JSContext alloc] init];
+        JSValue *array = [JSValue valueWithNewArrayInContext:context];
+        checkResult(@"Should be 0", ![array toInt64]);
+
+        JSValue *bigInt = [JSValue valueWithNewBigIntFromInt64:(int64_t)42 inContext:context];
+        checkResult(@"Should be a 42", [bigInt toInt64] == 42);
+    }
+
+    @autoreleasepool {
+        JSContext *context = [[JSContext alloc] init];
+        JSValue *bigInt = [JSValue valueWithNewBigIntFromInt64:(int64_t)42 inContext:context];
+        checkResult(@"Should be a string `42`", [[bigInt toString] isEqualToString:@"42"]);
+    }
+
+    @autoreleasepool {
+        JSContext *context = [[JSContext alloc] init];
+        JSValue *bigInt42 = [JSValue valueWithNewBigIntFromInt64:(int64_t)42 inContext:context];
+        JSValue *bigInt43 = [JSValue valueWithNewBigIntFromInt64:(int64_t)43 inContext:context];
+        checkResult(@"Should be kJSRelationConditionLessThan", [bigInt42 compareJSValue:bigInt43] == kJSRelationConditionLessThan);
+    }
+}
+
 #define RUN(test) do { \
         if (!shouldRun(#test)) \
             break; \
@@ -2841,6 +2963,11 @@ void testObjectiveCAPI(const char* filter)
 {
     NSLog(@"Testing Objective-C API");
 
+    bool skipBytecodeCacheTests = [] {
+        auto var = unsafeSpan(getenv("SkipBytecodeCacheTests"));
+        return var.data() && !!parseInteger<int>(var).value_or(0);
+    }();
+
     auto shouldRun = [&] (const char* test) -> bool {
         if (filter)
             return strcasestr(test, filter);
@@ -2850,18 +2977,22 @@ void testObjectiveCAPI(const char* filter)
     RUN(checkNegativeNSIntegers());
     RUN(runJITThreadLimitTests());
     RUN(testToString());
+    RUN(testBigIntAPI());
 
     RUN(testLoaderResolvesAbsoluteScriptURL());
     RUN(testFetch());
     RUN(testFetchWithTwoCycle());
     RUN(testFetchWithThreeCycle());
     RUN(testImportModuleTwice());
-    RUN(testModuleBytecodeCache());
-    RUN(testProgramBytecodeCache());
-    RUN(testBytecodeCacheWithSyntaxError(kJSScriptTypeProgram));
-    RUN(testBytecodeCacheWithSyntaxError(kJSScriptTypeModule));
-    RUN(testBytecodeCacheWithSameCacheFileAndDifferentScript(false));
-    RUN(testBytecodeCacheWithSameCacheFileAndDifferentScript(true));
+    RUN(testImportMetaURL());
+    if (!skipBytecodeCacheTests) {
+        RUN(testModuleBytecodeCache());
+        RUN(testProgramBytecodeCache());
+        RUN(testBytecodeCacheWithSyntaxError(kJSScriptTypeProgram));
+        RUN(testBytecodeCacheWithSyntaxError(kJSScriptTypeModule));
+        RUN(testBytecodeCacheWithSameCacheFileAndDifferentScript(false));
+        RUN(testBytecodeCacheWithSameCacheFileAndDifferentScript(true));
+    }
     RUN(testProgramJSScriptException());
     RUN(testCacheFileFailsWhenItsAlreadyCached());
     RUN(testCanCacheManyFilesWithTheSameVM());

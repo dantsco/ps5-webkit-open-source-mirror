@@ -101,6 +101,7 @@ static bool setOpt(PlatformSocketType socket, int optname, const void* optval, i
 {
     int error = ::setsockopt(socket, SOL_SOCKET, optname, static_cast<const char*>(optval), optlen);
     if (error < 0) {
+        UNUSED_PARAM(debug);
         LOG_ERROR("setsockopt(%s) failed (errno = %d)", debug, WSAGetLastError());
         return false;
     }
@@ -169,7 +170,7 @@ std::optional<PlatformSocketType> connect(const char* serverAddress, uint16_t se
         hints.ai_socktype = SOCK_STREAM;
         hints.ai_family = AF_INET;
         if (!getaddrinfo(serverAddress, 0, &hints, &res)) {
-            address.sin_addr = ((struct sockaddr_in*)(res->ai_addr))->sin_addr;
+            address.sin_addr = reinterpret_cast<struct sockaddr_in*>(res->ai_addr)->sin_addr;
             freeaddrinfo(res);
         }
     }
@@ -327,7 +328,7 @@ PollingDescriptor preparePolling(PlatformSocketType socket)
 
 bool poll(Vector<PollingDescriptor>& pollDescriptors, int timeout)
 {
-    int ret = ::WSAPoll(pollDescriptors.data(), pollDescriptors.size(), timeout);
+    int ret = ::WSAPoll(pollDescriptors.mutableSpan().data(), pollDescriptors.size(), timeout);
     return ret > 0;
 }
 

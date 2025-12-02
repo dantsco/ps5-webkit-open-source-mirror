@@ -45,11 +45,13 @@ extern const int s_builtinPromiseRejectPromiseCodeLength;
 extern const JSC::ConstructAbility s_builtinPromiseRejectPromiseCodeConstructAbility;
 extern const JSC::ConstructorKind s_builtinPromiseRejectPromiseCodeConstructorKind;
 extern const JSC::ImplementationVisibility s_builtinPromiseRejectPromiseCodeImplementationVisibility;
+extern const JSC::InlineAttribute s_builtinPromiseRejectPromiseCodeInlineAttribute;
 extern const char* const s_builtinPromiseFulfillPromiseCode;
 extern const int s_builtinPromiseFulfillPromiseCodeLength;
 extern const JSC::ConstructAbility s_builtinPromiseFulfillPromiseCodeConstructAbility;
 extern const JSC::ConstructorKind s_builtinPromiseFulfillPromiseCodeConstructorKind;
 extern const JSC::ImplementationVisibility s_builtinPromiseFulfillPromiseCodeImplementationVisibility;
+extern const JSC::InlineAttribute s_builtinPromiseFulfillPromiseCodeInlineAttribute;
 
 #define JSC_FOREACH_BUILTIN_PROMISE_BUILTIN_DATA(macro) \
     macro(rejectPromise, builtinPromiseRejectPromise, 2) \
@@ -118,12 +120,13 @@ JSC_FOREACH_BUILTIN.PROMISE_BUILTIN_CODE(DECLARE_BUILTIN_GENERATOR)
 
 namespace JSC {
 
-const JSC::ConstructAbility s_builtinPromiseRejectPromiseCodeConstructAbility = JSC::ConstructAbility::CannotConstruct;
-const JSC::ConstructorKind s_builtinPromiseRejectPromiseCodeConstructorKind = JSC::ConstructorKind::None;
-const JSC::ImplementationVisibility s_builtinPromiseRejectPromiseCodeImplementationVisibility = JSC::ImplementationVisibility::Public;
-const int s_builtinPromiseRejectPromiseCodeLength = 337;
-static const JSC::Intrinsic s_builtinPromiseRejectPromiseCodeIntrinsic = JSC::NoIntrinsic;
-const char* const s_builtinPromiseRejectPromiseCode =
+constinit const JSC::ConstructAbility s_builtinPromiseRejectPromiseCodeConstructAbility = JSC::ConstructAbility::CannotConstruct;
+constinit const JSC::ConstructorKind s_builtinPromiseRejectPromiseCodeConstructorKind = JSC::ConstructorKind::None;
+constinit const JSC::ImplementationVisibility s_builtinPromiseRejectPromiseCodeImplementationVisibility = JSC::ImplementationVisibility::Public;
+constinit const JSC::InlineAttribute s_builtinPromiseRejectPromiseCodeInlineAttribute = JSC::InlineAttribute::None;
+constinit const int s_builtinPromiseRejectPromiseCodeLength = 337;
+static constinit const JSC::Intrinsic s_builtinPromiseRejectPromiseCodeIntrinsic = JSC::NoIntrinsic;
+constinit const char* const s_builtinPromiseRejectPromiseCode =
     "(function (promise, reason)\n" \
     "{\n" \
     "    \"use strict\";\n" \
@@ -138,12 +141,13 @@ const char* const s_builtinPromiseRejectPromiseCode =
     "})\n" \
 ;
 
-const JSC::ConstructAbility s_builtinPromiseFulfillPromiseCodeConstructAbility = JSC::ConstructAbility::CannotConstruct;
-const JSC::ConstructorKind s_builtinPromiseFulfillPromiseCodeConstructorKind = JSC::ConstructorKind::None;
-const JSC::ImplementationVisibility s_builtinPromiseFulfillPromiseCodeImplementationVisibility = JSC::ImplementationVisibility::Public;
-const int s_builtinPromiseFulfillPromiseCodeLength = 336;
-static const JSC::Intrinsic s_builtinPromiseFulfillPromiseCodeIntrinsic = JSC::NoIntrinsic;
-const char* const s_builtinPromiseFulfillPromiseCode =
+constinit const JSC::ConstructAbility s_builtinPromiseFulfillPromiseCodeConstructAbility = JSC::ConstructAbility::CannotConstruct;
+constinit const JSC::ConstructorKind s_builtinPromiseFulfillPromiseCodeConstructorKind = JSC::ConstructorKind::None;
+constinit const JSC::ImplementationVisibility s_builtinPromiseFulfillPromiseCodeImplementationVisibility = JSC::ImplementationVisibility::Public;
+constinit const JSC::InlineAttribute s_builtinPromiseFulfillPromiseCodeInlineAttribute = JSC::InlineAttribute::None;
+constinit const int s_builtinPromiseFulfillPromiseCodeLength = 336;
+static constinit const JSC::Intrinsic s_builtinPromiseFulfillPromiseCodeIntrinsic = JSC::NoIntrinsic;
+constinit const char* const s_builtinPromiseFulfillPromiseCode =
     "(function (promise, value)\n" \
     "{\n" \
     "    \"use strict\";\n" \

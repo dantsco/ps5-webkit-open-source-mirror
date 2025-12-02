@@ -37,7 +37,7 @@ function asyncGeneratorQueueEnqueue(generator, item)
 {
     "use strict";
 
-    @assert(@getByIdDirectPrivate(item, "asyncGeneratorQueueItemNext") === null);
+    @assert(@getByIdDirect(item, "next") === null);
 
     if (@getAsyncGeneratorInternalField(generator, @asyncGeneratorFieldQueueFirst) === null) {
         @assert(@getAsyncGeneratorInternalField(generator, @asyncGeneratorFieldQueueLast) === null);
@@ -46,7 +46,7 @@ function asyncGeneratorQueueEnqueue(generator, item)
         @putAsyncGeneratorInternalField(generator, @asyncGeneratorFieldQueueLast, item);
     } else {
         var last = @getAsyncGeneratorInternalField(generator, @asyncGeneratorFieldQueueLast);
-        @putByIdDirectPrivate(last, "asyncGeneratorQueueItemNext", item);
+        @putByIdDirect(last, "next", item);
         @putAsyncGeneratorInternalField(generator, @asyncGeneratorFieldQueueLast, item);
     }
 }
@@ -60,7 +60,7 @@ function asyncGeneratorQueueDequeue(generator)
 
     var result = @getAsyncGeneratorInternalField(generator, @asyncGeneratorFieldQueueFirst);
 
-    var updatedFirst = @getByIdDirectPrivate(result, "asyncGeneratorQueueItemNext");
+    var updatedFirst = @getByIdDirect(result, "next");
     @putAsyncGeneratorInternalField(generator, @asyncGeneratorFieldQueueFirst, updatedFirst);
 
     if (updatedFirst === null)
@@ -143,14 +143,6 @@ function asyncGeneratorYield(generator, value, resumeMode)
 
     @putAsyncGeneratorInternalField(generator, @asyncGeneratorFieldSuspendReason, @AsyncGeneratorSuspendReasonAwait);
     @awaitValue(generator, value, @asyncGeneratorYieldAwaited);
-}
-
-@linkTimeConstant
-function awaitValue(generator, value, onFulfilled)
-{
-    "use strict";
-
-    @resolveWithoutPromiseForAsyncAwait(value, onFulfilled, @asyncGeneratorYieldOnRejected, generator);
 }
 
 @linkTimeConstant
@@ -289,7 +281,7 @@ function asyncGeneratorEnqueue(generator, value, resumeMode)
         return promise;
     }
 
-    @asyncGeneratorQueueEnqueue(generator, {resumeMode, value, promise, @asyncGeneratorQueueItemNext: null});
+    @asyncGeneratorQueueEnqueue(generator, {resumeMode, value, promise, next: null});
 
     if (!@isExecutionState(generator))
         @asyncGeneratorResumeNext(generator);

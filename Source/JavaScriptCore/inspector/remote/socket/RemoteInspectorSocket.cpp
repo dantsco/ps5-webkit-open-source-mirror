@@ -31,16 +31,11 @@
 #include "RemoteAutomationTarget.h"
 #include "RemoteConnectionToTarget.h"
 #include "RemoteInspectionTarget.h"
-#include "RemoteInspectorUtils.h"
 #include <wtf/FileSystem.h>
 #include <wtf/JSONValues.h>
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RunLoop.h>
-
-#if PLATFORM(PLAYSTATION)
-extern const char* kInspectorBackendCommandsString;
-#endif
 
 namespace Inspector {
 
@@ -74,7 +69,7 @@ void RemoteInspector::didClose(RemoteInspectorSocketEndpoint&, ConnectionID)
 
     m_clientConnection = std::nullopt;
 
-    RunLoop::current().dispatch([this] {
+    RunLoop::currentSingleton().dispatch([this] {
         Locker locker { m_mutex };
         stopInternal(StopSource::API);
     });
@@ -85,8 +80,7 @@ void RemoteInspector::sendWebInspectorEvent(const String& event)
     if (!m_clientConnection)
         return;
 
-    const CString message = event.utf8();
-    send(m_clientConnection.value(), reinterpret_cast<const uint8_t*>(message.data()), message.length());
+    send(m_clientConnection.value(), byteCast<uint8_t>(event.utf8().span()));
 }
 
 void RemoteInspector::start()
@@ -117,7 +111,7 @@ void RemoteInspector::stopInternal(StopSource)
 
     updateHasActiveDebugSession();
 
-    m_pausedAutomaticInspectionCandidates.clear();
+    m_automaticInspectionCandidates.clear();
 }
 
 TargetListing RemoteInspector::listingForInspectionTarget(const RemoteInspectionTarget& target) const
@@ -143,6 +137,8 @@ TargetListing RemoteInspector::listingForInspectionTarget(const RemoteInspection
         targetListing->setString("type"_s, "javascript"_s);
     else if (target.type() == RemoteInspectionTarget::Type::ServiceWorker)
         targetListing->setString("type"_s, "service-worker"_s);
+    else if (target.type() == RemoteInspectionTarget::Type::WasmDebugger)
+        targetListing->setString("type"_s, "wasm-debugger"_s);
 
     return targetListing;
 }
@@ -186,7 +182,7 @@ void RemoteInspector::pushListingsSoon()
 
     m_pushScheduled = true;
 
-    RunLoop::current().dispatch([this] {
+    RunLoop::currentSingleton().dispatch([this] {
         Locker locker { m_mutex };
         if (m_pushScheduled)
             pushListingsNow();
@@ -263,17 +259,12 @@ void RemoteInspector::sendMessageToTarget(TargetID targetIdentifier, const char*
 
 String RemoteInspector::backendCommands() const
 {
-#if PLATFORM(PLAYSTATION)
-    if (kInspectorBackendCommandsString)
-        return String::fromUTF8(kInspectorBackendCommandsString);
-#endif
-
     if (m_backendCommandsPath.isEmpty())
         return { };
 
     auto contents = FileSystem::readEntireFile(m_backendCommandsPath);
 
-    return contents ? String::adopt(WTFMove(*contents)) : emptyString();
+    return contents ? String { byteCast<Latin1Character>(contents->span()) } : emptyString();
 }
 
 // RemoteInspectorConnectionClient handlers
@@ -291,18 +282,13 @@ HashMap<String, RemoteInspectorConnectionClient::CallHandler>& RemoteInspector::
     return methods;
 }
 
-void RemoteInspector::setupInspectorClient(const Event& event)
+void RemoteInspector::setupInspectorClient(const Event&)
 {
     ASSERT(isMainThread());
 
     auto backendCommandsEvent = JSON::Object::create();
-    if (event.message.has_value() && event.message.value() == "RequireBackendVersion"_s) {
-        backendCommandsEvent->setString("event"_s, "BackendVersion"_s);
-        backendCommandsEvent->setString("message"_s, Inspector::backendCommandsVersion());
-    } else {
-        backendCommandsEvent->setString("event"_s, "BackendCommands"_s);
-        backendCommandsEvent->setString("message"_s, backendCommands());
-    }
+    backendCommandsEvent->setString("event"_s, "BackendCommands"_s);
+    backendCommandsEvent->setString("message"_s, backendCommands());
     sendWebInspectorEvent(backendCommandsEvent->toJSONString());
 
     m_readyToPushListings = true;
@@ -371,8 +357,21 @@ void RemoteInspector::startAutomationSession(const Event& event)
     if (!event.message)
         return;
 
-    String sessionID = *event.message;
-    requestAutomationSession(WTFMove(sessionID), { });
+    auto parsedMessageValue = JSON::Value::parseJSON(*event.message);
+    if (!parsedMessageValue)
+        return;
+
+    auto parsedMessageObject = parsedMessageValue->asObject();
+    auto sessionID = parsedMessageObject->getString("sessionID"_s);
+    if (!sessionID)
+        return;
+
+    RemoteInspector::Client::SessionCapabilities capabilities { };
+    auto capabilitiesObject = parsedMessageObject->getObject("capabilities"_s);
+    if (capabilitiesObject)
+        capabilities.acceptInsecureCertificates = capabilitiesObject->getBoolean("acceptInsecureCerts"_s).value_or(false);
+
+    requestAutomationSession(WTFMove(sessionID), capabilities);
 
     auto sendEvent = JSON::Object::create();
     sendEvent->setString("event"_s, "StartAutomationSession_Return"_s);

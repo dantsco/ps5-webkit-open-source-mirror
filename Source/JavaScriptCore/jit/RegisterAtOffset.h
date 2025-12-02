@@ -27,8 +27,8 @@
 
 #if ENABLE(ASSEMBLER)
 
-#include "Reg.h"
-#include "Width.h"
+#include <JavaScriptCore/Reg.h>
+#include <JavaScriptCore/Width.h>
 #include <cstddef>
 #include <wtf/PrintStream.h>
 
@@ -44,7 +44,7 @@ public:
         , m_offsetBits((offset >> 2) & 0xFFFFFFFFFFFFFF)
     {
         ASSERT(!(offset & 0b11));
-        ASSERT(width == conservativeWidthWithoutVectors(reg) || Options::useWebAssemblySIMD());
+        ASSERT(width == conservativeWidthWithoutVectors(reg) || Options::useWasmSIMD());
         ASSERT(reg.index() < (1 << 6));
         ASSERT(Reg::last().index() < (1 << 6));
         ASSERT(this->reg() == reg);
@@ -59,7 +59,7 @@ public:
     size_t byteSize() const { return bytesForWidth(width()); }
     Width width() const { return m_width ? conservativeWidth(reg()) : conservativeWidthWithoutVectors(reg()); }
     int offsetAsIndex() const { ASSERT(!(offset() % sizeof(CPURegister))); return offset() / static_cast<int>(sizeof(CPURegister)); }
-    
+
     bool operator==(const RegisterAtOffset& other) const
     {
         return reg() == other.reg() && offset() == other.offset() && width() == other.width();
@@ -77,9 +77,9 @@ public:
     void dump(PrintStream& out) const;
 
 private:
-    unsigned m_regIndex : 7 = Reg().index();
-    bool m_width : 1 = false;
-    ptrdiff_t m_offsetBits : (sizeof(ptrdiff_t) * CHAR_BIT - 7 - 1) = 0;
+    unsigned m_regIndex : 7 { Reg().index() };
+    unsigned m_width : 1 { false };
+    ptrdiff_t m_offsetBits : (sizeof(ptrdiff_t) * CHAR_BIT - 7 - 1) { 0 };
 };
 
 } // namespace JSC
