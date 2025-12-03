@@ -25,6 +25,8 @@
 
 #pragma once
 
+DECLARE_SYSTEM_HEADER
+
 #if HAVE(IOSURFACE)
 
 #if PLATFORM(MAC) || USE(APPLE_INTERNAL_SDK)
@@ -65,6 +67,9 @@ extern const CFStringRef kIOSurfacePlaneBytesPerRow;
 extern const CFStringRef kIOSurfacePlaneOffset;
 extern const CFStringRef kIOSurfacePlaneSize;
 extern const CFStringRef kIOSurfacePlaneInfo;
+#if HAVE(SUPPORT_HDR_DISPLAY)
+extern const CFStringRef kIOSurfaceContentHeadroom;
+#endif
 
 size_t IOSurfaceAlignProperty(CFStringRef property, size_t value);
 IOSurfaceRef IOSurfaceCreate(CFDictionaryRef properties);
@@ -96,7 +101,7 @@ WTF_EXTERN_C_END
 
 WTF_EXTERN_C_BEGIN
 
-#if HAVE(IOSURFACE_SET_OWNERSHIP) || HAVE(IOSURFACE_SET_OWNERSHIP_IDENTITY)
+#if (HAVE(IOSURFACE_SET_OWNERSHIP) || HAVE(IOSURFACE_SET_OWNERSHIP_IDENTITY)) && !HAVE(BROWSER_ENGINE_SUPPORTING_API)
 typedef CF_ENUM(int, IOSurfaceMemoryLedgerTags)
 {
     kIOSurfaceMemoryLedgerTagDefault     = 0x00000001,

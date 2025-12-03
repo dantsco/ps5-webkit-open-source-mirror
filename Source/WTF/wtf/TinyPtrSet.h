@@ -27,6 +27,9 @@
 
 #include <wtf/Assertions.h>
 #include <wtf/FastMalloc.h>
+#include <wtf/StdLibExtras.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC { namespace DFG {
 class StructureAbstractValue;
@@ -42,7 +45,7 @@ namespace WTF {
 
 template<typename T>
 class TinyPtrSet {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(TinyPtrSet);
     static_assert(sizeof(T) == sizeof(void*), "It's in the title of the class.");
 public:
     TinyPtrSet()
@@ -167,8 +170,7 @@ public:
         return mergeOtherOutOfLine(other);
     }
     
-    template<typename Functor>
-    void forEach(const Functor& functor) const
+    void forEach(NOESCAPE const Invocable<void(const T&)> auto& functor) const
     {
         if (isThin()) {
             if (!singleEntry())
@@ -182,8 +184,7 @@ public:
             functor(list->list()[i]);
     }
         
-    template<typename Functor>
-    void genericFilter(const Functor& functor)
+    void genericFilter(NOESCAPE const Invocable<bool(const T&)> auto& functor)
     {
         if (isThin()) {
             if (!singleEntry())
@@ -450,7 +451,7 @@ private:
             fastFree(list);
         }
         
-        T* list() { return bitwise_cast<T*>(this + 1); }
+        T* list() { return m_list; }
         
         OutOfLineList(unsigned length, unsigned capacity)
             : m_length(length)
@@ -460,6 +461,7 @@ private:
 
         unsigned m_length;
         unsigned m_capacity;
+        T m_list[0];
     };
     
     ALWAYS_INLINE void deleteListIfNecessary()
@@ -474,13 +476,13 @@ private:
     
     void* pointer() const
     {
-        return bitwise_cast<void*>(m_pointer & ~flags);
+        return std::bit_cast<void*>(m_pointer & ~flags);
     }
     
     T singleEntry() const
     {
         ASSERT(isThin());
-        return bitwise_cast<T>(pointer());
+        return std::bit_cast<T>(pointer());
     }
     
     OutOfLineList* list() const
@@ -491,11 +493,11 @@ private:
     
     void set(T value)
     {
-        set(bitwise_cast<uintptr_t>(value), true);
+        set(std::bit_cast<uintptr_t>(value), true);
     }
     void set(OutOfLineList* list)
     {
-        set(bitwise_cast<uintptr_t>(list), false);
+        set(std::bit_cast<uintptr_t>(list), false);
     }
     void setEmpty()
     {
@@ -520,3 +522,5 @@ private:
 } // namespace WTF
 
 using WTF::TinyPtrSet;
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

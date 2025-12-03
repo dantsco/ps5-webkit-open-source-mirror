@@ -25,14 +25,19 @@
 
 #pragma once
 
+DECLARE_SYSTEM_HEADER
+
 #if USE(APPLE_INTERNAL_SDK)
 
 #include <Security/SecAccessControlPriv.h>
 #include <Security/SecCertificatePriv.h>
+#include <Security/SecCertificateRequest.h>
+#include <Security/SecCode.h>
 #include <Security/SecCodePriv.h>
 #include <Security/SecIdentityPriv.h>
 #include <Security/SecItemPriv.h>
 #include <Security/SecKeyPriv.h>
+#include <Security/SecStaticCode.h>
 #include <Security/SecTask.h>
 #include <Security/SecTrustPriv.h>
 
@@ -42,7 +47,12 @@
 
 #else
 
+#include <CoreFoundation/CoreFoundation.h>
 #include <Security/SecBase.h>
+
+#if __has_include(<Security/CSCommon.h>)
+#include <Security/CSCommon.h>
+#endif
 
 typedef uint32_t SecSignatureHashAlgorithm;
 enum {
@@ -51,7 +61,7 @@ enum {
     kSecSignatureHashAlgorithmMD4 = 2,
     kSecSignatureHashAlgorithmMD5 = 3,
     kSecSignatureHashAlgorithmSHA1 = 4,
-    kSecSignatureHashAlgorithmSHA224 = 5,
+    DeprecatedKSecSignatureHashAlgorithmSHA224 = 5,
     kSecSignatureHashAlgorithmSHA256 = 6,
     kSecSignatureHashAlgorithmSHA384 = 7,
     kSecSignatureHashAlgorithmSHA512 = 8
@@ -59,19 +69,40 @@ enum {
 
 WTF_EXTERN_C_BEGIN
 
-#if PLATFORM(MAC)
-OSStatus SecTrustedApplicationCreateFromPath(const char* path, SecTrustedApplicationRef*);
+#if !__has_include(<Security/CSCommon.h>)
+typedef struct CF_BRIDGED_TYPE(id) __SecCode const *SecStaticCodeRef;
+
+typedef uint32_t SecCSFlags;
+enum {
+    kSecCSDefaultFlags = 0,
+};
 #endif
 
+#if PLATFORM(IOS_FAMILY)
+extern const CFStringRef kSecCodeInfoUnique;
+
+OSStatus SecStaticCodeCreateWithPath(CFURLRef, SecCSFlags, SecStaticCodeRef * CF_RETURNS_RETAINED);
+OSStatus SecCodeCopySigningInformation(SecStaticCodeRef, SecCSFlags, CFDictionaryRef * CF_RETURNS_RETAINED);
+#endif
+
+#if PLATFORM(MAC)
+OSStatus SecTrustedApplicationCreateFromPath(const char* path, SecTrustedApplicationRef * CF_RETURNS_RETAINED);
+#endif
+
+SecCertificateRef SecGenerateSelfSignedCertificate(CFArrayRef, CFDictionaryRef,
+    SecKeyRef, SecKeyRef);
 SecSignatureHashAlgorithm SecCertificateGetSignatureHashAlgorithm(SecCertificateRef);
+
 extern const CFStringRef kSecAttrNoLegacy;
+extern const CFStringRef kSecAttrAlias;
+extern const CFStringRef kSecCertificateLifetime;
 
 WTF_EXTERN_C_END
 
 #endif // USE(APPLE_INTERNAL_SDK)
 
-typedef struct __SecTask *SecTaskRef;
-typedef struct __SecTrust *SecTrustRef;
+typedef struct CF_BRIDGED_TYPE(id) __SecTask *SecTaskRef;
+typedef struct CF_BRIDGED_TYPE(id) __SecTrust *SecTrustRef;
 
 WTF_EXTERN_C_BEGIN
 
@@ -86,6 +117,8 @@ CFDataRef SecAccessControlCopyData(SecAccessControlRef);
 
 CFDataRef SecKeyCopySubjectPublicKeyInfo(SecKeyRef);
 
+OSStatus SecCodeValidateFileResource(SecStaticCodeRef, CFStringRef, CFDataRef, SecCSFlags);
+
 #if PLATFORM(MAC)
 #include <Security/SecAsn1Types.h>
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
@@ -97,6 +130,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 #if PLATFORM(COCOA)
 CF_RETURNS_RETAINED CFDataRef SecTrustSerialize(SecTrustRef, CFErrorRef *);
 CF_RETURNS_RETAINED SecTrustRef SecTrustDeserialize(CFDataRef serializedTrust, CFErrorRef *);
+CF_RETURNS_RETAINED CFPropertyListRef SecTrustCopyPropertyListRepresentation(SecTrustRef, CFErrorRef *);
+CF_RETURNS_RETAINED SecTrustRef SecTrustCreateFromPropertyListRepresentation(CFPropertyListRef trustPlist, CFErrorRef *);
 #endif
 
 CF_RETURNS_RETAINED CFDictionaryRef SecTrustCopyInfo(SecTrustRef);

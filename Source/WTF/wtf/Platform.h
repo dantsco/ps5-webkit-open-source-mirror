@@ -82,8 +82,12 @@
    belong as part of Platform.h at all. */
 
 
+#if USE(GLIB)
+#define GLIB_VERSION_MIN_REQUIRED GLIB_VERSION_2_56
+#define GLIB_VERSION_MAX_ALLOWED GLIB_VERSION_2_70
+#endif
+
 #if PLATFORM(GTK)
-#define GLIB_VERSION_MIN_REQUIRED GLIB_VERSION_2_44
 #if USE(GTK4)
 #define GDK_VERSION_MIN_REQUIRED GDK_VERSION_4_0
 #else
@@ -91,16 +95,8 @@
 #endif
 #endif
 
-#if PLATFORM(WPE)
-#define GLIB_VERSION_MIN_REQUIRED GLIB_VERSION_2_44
-#endif
-
 #if USE(SOUP)
-#if USE(SOUP2)
-#define SOUP_VERSION_MIN_REQUIRED SOUP_VERSION_2_54
-#else
 #define SOUP_VERSION_MIN_REQUIRED SOUP_VERSION_3_0
-#endif
 #endif
 
 #if PLATFORM(COCOA)
@@ -159,6 +155,13 @@
 #endif
 
 /* FIXME: This is used to "turn on a specific feature of WebKit", so should be converted to an ENABLE macro. */
-#if (PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)) && ENABLE(ACCESSIBILITY)
+#if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
 #define USE_ACCESSIBILITY_CONTEXT_MENUS 1
+#endif
+
+#if OS(WINDOWS)
+// https://github.com/MicrosoftDocs/cpp-docs/blob/main/docs/cpp/empty-bases.md
+#define WTF_EMPTY_BASE_CLASS __declspec(empty_bases)
+#else
+#define WTF_EMPTY_BASE_CLASS
 #endif

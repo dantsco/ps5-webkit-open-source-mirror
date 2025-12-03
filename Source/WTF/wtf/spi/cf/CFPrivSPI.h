@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022 Apple Inc.  All rights reserved.
+ * Copyright (C) 2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,6 +25,8 @@
 
 #pragma once
 
+DECLARE_SYSTEM_HEADER
+
 #include <CoreFoundation/CoreFoundation.h>
 
 #if USE(APPLE_INTERNAL_SDK)
@@ -33,8 +35,8 @@
 
 #endif
 
-extern "C" {
+WTF_EXTERN_C_BEGIN
 
 CF_EXPORT const char *_CFProcessPath(void);
 
-}
+WTF_EXTERN_C_END

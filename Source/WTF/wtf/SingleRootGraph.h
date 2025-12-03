@@ -36,10 +36,10 @@ namespace WTF {
 
 template <typename Graph>
 class SingleRootGraphNode {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(SingleRootGraphNode);
 public:
     // We use "#root" to refer to the synthetic root we have created.
-    static const char* rootName() { return "#root"; };
+    static ASCIILiteral rootName() { return "#root"_s; };
 
     SingleRootGraphNode(typename Graph::Node node = typename Graph::Node())
         : m_node(node)
@@ -54,11 +54,7 @@ public:
         return result;
     }
 
-    bool operator==(const SingleRootGraphNode& other) const
-    {
-        return m_node == other.m_node
-            && m_isRoot == other.m_isRoot;
-    }
+    friend bool operator==(const SingleRootGraphNode&, const SingleRootGraphNode&) = default;
 
     explicit operator bool() const { return *this != SingleRootGraphNode(); }
 
@@ -80,7 +76,7 @@ private:
 
 template <typename Graph>
 class SingleRootGraphSet {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(SingleRootGraphSet);
     using Node = SingleRootGraphNode<Graph>;
 public:
     SingleRootGraphSet() = default;
@@ -109,7 +105,7 @@ public:
     void dump(PrintStream& out) const
     {
         if (m_hasRoot)
-            out.print(Node::rootName(), " ");
+            out.print(Node::rootName(), " "_s);
         out.print(m_set);
     }
     
@@ -120,7 +116,7 @@ private:
 
 template<typename T, typename Graph>
 class SingleRootMap {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(SingleRootMap);
     using Node = SingleRootGraphNode<Graph>;
 public:
     SingleRootMap(Graph& graph)
@@ -174,7 +170,7 @@ private:
 template<typename Graph>
 class SingleRootGraph {
     WTF_MAKE_NONCOPYABLE(SingleRootGraph);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(SingleRootGraph);
 public:
 
     using Node = SingleRootGraphNode<Graph>;
@@ -265,17 +261,17 @@ public:
             Node node = this->node(i);
             if (!node)
                 continue;
-            out.print(dump(node), ":\n");
-            out.print("    Preds: ");
+            out.print(dump(node), ":\n"_s);
+            out.print("    Preds: "_s);
             CommaPrinter comma;
             for (Node predecessor : predecessors(node))
                 out.print(comma, dump(predecessor));
-            out.print("\n");
-            out.print("    Succs: ");
+            out.print("\n"_s);
+            out.print("    Succs: "_s);
             comma = CommaPrinter();
             for (Node successor : successors(node))
                 out.print(comma, dump(successor));
-            out.print("\n");
+            out.print("\n"_s);
         }
     }
 

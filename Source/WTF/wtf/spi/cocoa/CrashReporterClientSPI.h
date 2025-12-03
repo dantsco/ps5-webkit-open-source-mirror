@@ -25,9 +25,11 @@
 
 #pragma once
 
-#if USE(APPLE_INTERNAL_SDK)
+DECLARE_SYSTEM_HEADER
 
-#import <CrashReporterClient.h>
+#if __has_include(<CrashReporterClient.h>)
+
+#include <CrashReporterClient.h>
 
 #else
 

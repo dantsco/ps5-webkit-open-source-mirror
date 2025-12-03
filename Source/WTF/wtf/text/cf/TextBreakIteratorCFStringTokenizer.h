@@ -20,17 +20,23 @@
 
 #pragma once
 
+#if PLATFORM(COCOA)
 #include <CoreFoundation/CoreFoundation.h>
+#endif
+
+#include <wtf/Platform.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/spi/cf/CFStringSPI.h>
 #include <wtf/text/AtomString.h>
 #include <wtf/text/StringView.h>
 #include <wtf/text/cocoa/ContextualizedCFString.h>
 
+#if PLATFORM(COCOA)
+
 namespace WTF {
 
 class TextBreakIteratorCFStringTokenizer {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(TextBreakIteratorCFStringTokenizer);
 public:
     enum class Mode {
         Word,
@@ -130,3 +136,5 @@ private:
 };
 
 }
+
+#endif // PLATFORM(COCOA)

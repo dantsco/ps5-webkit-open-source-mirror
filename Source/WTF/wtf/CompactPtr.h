@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2022-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +27,7 @@
 
 #include <cstdint>
 #include <utility>
+#include <wtf/FastMalloc.h>
 #include <wtf/Forward.h>
 #include <wtf/GetPtr.h>
 #include <wtf/HashFunctions.h>
@@ -40,24 +41,15 @@
 
 namespace WTF {
 
-#if CPU(ADDRESS64)
-#if CPU(ARM64) && OS(DARWIN) && !PLATFORM(IOS_FAMILY_SIMULATOR)
-#if MACH_VM_MAX_ADDRESS_RAW < (1ULL << 36)
-#define HAVE_36BIT_ADDRESS 1
-#endif
-#endif
-#endif // CPU(ADDRESS64)
-
 template <typename T>
 class CompactPtr {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(CompactPtr);
 public:
 #if HAVE(36BIT_ADDRESS)
-    // The CompactPtr algorithm relies on being able to shift
-    // a 36-bit address right by 4 in order to fit in 32-bits.
-    // The only way this is an ok thing to do without information
-    // loss is if the if the address is always 16 bytes aligned i.e.
-    // the lower 4 bits is always 0.
+    // The CompactPtr algorithm relies on shifting a 36-bit address
+    // right by 4 bits to fit within 32 bits.
+    // This operation is lossless only if the address is always
+    // 16-byte aligned, meaning the lower 4 bits are always 0.
     using StorageType = uint32_t;
     static constexpr bool is32Bit = true;
 #else
@@ -65,6 +57,7 @@ public:
     static constexpr bool is32Bit = false;
 #endif
     static constexpr bool isCompactedType = true;
+    static_assert(::allowCompactPointers<T*>());
 
     ALWAYS_INLINE constexpr CompactPtr() = default;
 
@@ -72,19 +65,19 @@ public:
 
     ALWAYS_INLINE CompactPtr(T* ptr) { set(ptr); }
 
-    ALWAYS_INLINE constexpr CompactPtr(const CompactPtr& o) : m_ptr(o.m_ptr) { }
+    ALWAYS_INLINE constexpr CompactPtr(const CompactPtr& other) : m_ptr(other.m_ptr) { }
 
     template <typename X>
-    ALWAYS_INLINE constexpr CompactPtr(const CompactPtr<X>& o) : m_ptr(o.m_ptr) { static_assert(std::is_convertible_v<X*, T*>); }
+    ALWAYS_INLINE constexpr CompactPtr(const CompactPtr<X>& other) : m_ptr(other.m_ptr) { static_assert(std::is_convertible_v<X*, T*>); }
 
-    ALWAYS_INLINE CompactPtr(CompactPtr&& o) { swap(o); }
+    ALWAYS_INLINE CompactPtr(CompactPtr&& other) { swap(other); }
 
     template <typename X>
-    ALWAYS_INLINE CompactPtr(CompactPtr<X>&& o)
-        : m_ptr(o.m_ptr)
+    ALWAYS_INLINE CompactPtr(CompactPtr<X>&& other)
+        : m_ptr(other.m_ptr)
     { 
         static_assert(std::is_convertible_v<X*, T*>);
-        std::exchange(o.m_ptr, 0);
+        std::exchange(other.m_ptr, 0);
     }
 
     ALWAYS_INLINE constexpr CompactPtr(HashTableDeletedValueType) : m_ptr(hashDeletedStorageValue) { }
@@ -105,18 +98,21 @@ public:
         return *this;
     }
 
-    CompactPtr<T>& operator=(const CompactPtr& o)
+    CompactPtr<T>& operator=(const CompactPtr& other)
     {
-        CompactPtr copy(o);
+        if (&other == this)
+            return *this;
+
+        CompactPtr copy(other);
         swap(copy);
         return *this;
     }
 
     template <typename X>
-    CompactPtr<T>& operator=(const CompactPtr<X>& o)
+    CompactPtr<T>& operator=(const CompactPtr<X>& other)
     {
         static_assert(std::is_convertible_v<X*, T*>);
-        CompactPtr copy(o);
+        CompactPtr copy(other);
         swap(copy);
         return *this;
     }
@@ -128,18 +124,18 @@ public:
         return *this;
     }
 
-    CompactPtr<T>& operator=(CompactPtr&& o)
+    CompactPtr<T>& operator=(CompactPtr&& other)
     {
-        CompactPtr moved(WTFMove(o));
+        CompactPtr moved(WTFMove(other));
         swap(moved);
         return *this;
     }
 
     template <typename X>
-    CompactPtr<T>& operator=(CompactPtr<X>&& o)
+    CompactPtr<T>& operator=(CompactPtr<X>&& other)
     {
         static_assert(std::is_convertible_v<X*, T*>);
-        CompactPtr moved(WTFMove(o));
+        CompactPtr moved(WTFMove(other));
         swap(moved);
         return *this;
     }
@@ -160,7 +156,8 @@ public:
 
     void swap(CompactPtr& other) { std::swap(m_ptr, other.m_ptr); }
 
-    template <typename Other, typename = std::enable_if_t<Other::isCompactedType>>
+    template<typename Other>
+        requires Other::isCompactedType
     void swap(Other& other)
     {
         T* t1 = get();
@@ -178,7 +175,7 @@ public:
 
     static ALWAYS_INLINE StorageType encode(T* ptr)
     {
-        uintptr_t intPtr = bitwise_cast<uintptr_t>(ptr);
+        uintptr_t intPtr = std::bit_cast<uintptr_t>(ptr);
 #if HAVE(36BIT_ADDRESS)
         static_assert(alignof(T) >= (1ULL << bitsShift));
         ASSERT(!(intPtr & alignmentMask));
@@ -194,9 +191,9 @@ public:
     {
 #if HAVE(36BIT_ADDRESS)
         static_assert(alignof(T) >= (1ULL << bitsShift));
-        return bitwise_cast<T*>(static_cast<uintptr_t>(ptr) << bitsShift);
+        return std::bit_cast<T*>(static_cast<uintptr_t>(ptr) << bitsShift);
 #else
-        return bitwise_cast<T*>(ptr);
+        return std::bit_cast<T*>(ptr);
 #endif
     }
 
@@ -227,21 +224,17 @@ inline bool operator==(const CompactPtr<T>& a, U* b)
     return a.get() == b;
 }
 
-template<typename T, typename U>
-inline bool operator==(T* a, const CompactPtr<U>& b)
-{
-    return a == b.get();
-}
-
 template <typename T>
 struct GetPtrHelper<CompactPtr<T>> {
     using PtrType = T*;
+    using UnderlyingType = T;
     static T* getPtr(const CompactPtr<T>& p) { return const_cast<T*>(p.get()); }
 };
 
 template <typename T>
 struct IsSmartPtr<CompactPtr<T>> {
     static constexpr bool value = true;
+    static constexpr bool isNullable = true;
 };
 
 template <typename T>

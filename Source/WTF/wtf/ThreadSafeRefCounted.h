@@ -29,67 +29,48 @@
 #include <wtf/FastMalloc.h>
 #include <wtf/MainThread.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/RefCounted.h>
+#include <wtf/SwiftBridging.h>
 
 namespace WTF {
 
-#if defined(NDEBUG) && !ENABLE(SECURITY_ASSERTIONS)
-#define CHECK_THREAD_SAFE_REF_COUNTED_LIFECYCLE 0
-#else
-#define CHECK_THREAD_SAFE_REF_COUNTED_LIFECYCLE 1
-#endif
-
-class ThreadSafeRefCountedBase {
+class WTF_EMPTY_BASE_CLASS ThreadSafeRefCountedBase : public RefCountDebugger {
     WTF_MAKE_NONCOPYABLE(ThreadSafeRefCountedBase);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(ThreadSafeRefCountedBase);
 public:
-    ThreadSafeRefCountedBase() = default;
-
-#if CHECK_THREAD_SAFE_REF_COUNTED_LIFECYCLE
-    ~ThreadSafeRefCountedBase()
-    {
-        // When this ThreadSafeRefCounted object is a part of another object, derefBase() is never called on this object.
-        m_deletionHasBegun = true;
-    }
-#endif
-
     void ref() const
     {
-#if CHECK_THREAD_SAFE_REF_COUNTED_LIFECYCLE
-        ASSERT_WITH_SECURITY_IMPLICATION(!m_deletionHasBegun);
-#endif
+        willRef(m_refCount, RefCountIsThreadSafe::Yes);
         ++m_refCount;
     }
 
-    bool hasOneRef() const
-    {
-#if CHECK_THREAD_SAFE_REF_COUNTED_LIFECYCLE
-        ASSERT(!m_deletionHasBegun);
-#endif
-        return refCount() == 1;
-    }
-
-    unsigned refCount() const
-    {
-        return m_refCount;
-    }
+    bool hasOneRef() const { return m_refCount == 1; }
+    unsigned refCount() const { return m_refCount; }
 
 protected:
-    // Returns whether the pointer should be freed or not.
+    ThreadSafeRefCountedBase()
+    {
+        // FIXME: Lots of subclasses violate our adoption requirements. Migrate
+        // this call into only those subclasses that need it.
+        relaxAdoptionRequirement();
+    }
+
+    ~ThreadSafeRefCountedBase()
+    {
+        willDestroy(m_refCount);
+        // FIXME: Test performance, then change this to RELEASE_ASSERT.
+        ASSERT(m_refCount == 1);
+    }
+
+    // Returns true if the pointer should be freed.
     bool derefBase() const
     {
-        ASSERT(m_refCount);
+        willDeref(m_refCount, RefCountIsThreadSafe::Yes);
 
-#if CHECK_THREAD_SAFE_REF_COUNTED_LIFECYCLE
-        ASSERT_WITH_SECURITY_IMPLICATION(!m_deletionHasBegun);
-#endif
+        if (!--m_refCount) [[unlikely]] {
+            willDelete();
 
-        if (UNLIKELY(!--m_refCount)) {
-            // Setting m_refCount to 1 here prevents double delete within the destructor but not from another thread
-            // since such a thread could have ref'ed this object long after it had been deleted. See webkit.org/b/201576.
             m_refCount = 1;
-#if CHECK_THREAD_SAFE_REF_COUNTED_LIFECYCLE
-            m_deletionHasBegun = true;
-#endif
             return true;
         }
 
@@ -98,10 +79,6 @@ protected:
 
 private:
     mutable std::atomic<unsigned> m_refCount { 1 };
-
-#if CHECK_THREAD_SAFE_REF_COUNTED_LIFECYCLE
-    mutable std::atomic<bool> m_deletionHasBegun { false };
-#endif
 };
 
 template<class T, DestructionThread destructionThread = DestructionThread::Any> class ThreadSafeRefCounted : public ThreadSafeRefCountedBase {
@@ -111,25 +88,24 @@ public:
         if (!derefBase())
             return;
 
-        auto deleteThis = [this] {
+        if constexpr (destructionThread == DestructionThread::Any) {
             delete static_cast<const T*>(this);
-        };
-        switch (destructionThread) {
-        case DestructionThread::Any:
-            break;
-        case DestructionThread::Main:
-            ensureOnMainThread(WTFMove(deleteThis));
-            return;
-        case DestructionThread::MainRunLoop:
-            ensureOnMainRunLoop(WTFMove(deleteThis));
-            return;
-        }
-        deleteThis();
+        } else if constexpr (destructionThread == DestructionThread::Main) {
+            ensureOnMainThread([this] {
+                delete static_cast<const T*>(this);
+            });
+        } else if constexpr (destructionThread == DestructionThread::MainRunLoop) {
+            ensureOnMainRunLoop([this] {
+                delete static_cast<const T*>(this);
+            });
+        } else
+            STATIC_ASSERT_NOT_REACHED_FOR_VALUE(destructionThread, "Unexpected destructionThread enumerator value");
     }
 
 protected:
     ThreadSafeRefCounted() = default;
-};
+    ~ThreadSafeRefCounted() = default;
+} SWIFT_RETURNED_AS_UNRETAINED_BY_DEFAULT;
 
 } // namespace WTF
 

@@ -31,7 +31,7 @@ namespace WTF {
 
 template<typename Value, typename WeakPtrImpl = DefaultWeakPtrImpl>
 class WeakHashCountedSet {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(WeakHashCountedSet);
 private:
     using ImplType = WeakHashMap<Value, unsigned, WeakPtrImpl>;
 public:
@@ -135,6 +135,10 @@ inline bool WeakHashCountedSet<Value, WeakPtrImpl>::removeAll(iterator it)
 template<typename Value, typename WeakMapImpl>
 size_t containerSize(const WeakHashCountedSet<Value, WeakMapImpl>& container) { return container.computeSize(); }
 
+template<typename Value>
+using SingleThreadWeakHashCountedSet = WeakHashCountedSet<Value, SingleThreadWeakPtrImpl>;
+
 } // namespace WTF
 
+using WTF::SingleThreadWeakHashCountedSet;
 using WTF::WeakHashCountedSet;

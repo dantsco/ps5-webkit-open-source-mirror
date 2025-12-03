@@ -36,13 +36,14 @@
 #include <wtf/PageBlock.h>
 #include <wtf/RedBlackTree.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WTF {
 
 #define ENABLE_META_ALLOCATOR_PROFILE 0
 
 class MetaAllocatorTracker {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(MetaAllocatorTracker);
 public:
     void notify(MetaAllocatorHandle&);
     void release(MetaAllocatorHandle&);
@@ -74,7 +75,7 @@ public:
         Locker locker { m_lock };
         return allocate(locker, sizeInBytes);
     }
-    WTF_EXPORT_PRIVATE RefPtr<MetaAllocatorHandle> allocate(const LockHolder&, size_t sizeInBytes);
+    WTF_EXPORT_PRIVATE RefPtr<MetaAllocatorHandle> allocate(const Locker<Lock>&, size_t sizeInBytes);
 
     void trackAllocations(MetaAllocatorTracker* tracker)
     {
@@ -88,7 +89,7 @@ public:
     
     // Atomic method for getting allocator statistics.
     struct Statistics {
-        WTF_MAKE_STRUCT_FAST_ALLOCATED;
+        WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(Statistics);
         size_t bytesAllocated;
         size_t bytesReserved;
         size_t bytesCommitted;
@@ -98,7 +99,7 @@ public:
         Locker locker { m_lock };
         return currentStatistics(locker);
     }
-    WTF_EXPORT_PRIVATE Statistics currentStatistics(const LockHolder&);
+    WTF_EXPORT_PRIVATE Statistics currentStatistics(const Locker<Lock>&);
 
     // Add more free space to the allocator. Call this directly from
     // the constructor if you wish to operate the allocator within a
@@ -134,15 +135,15 @@ protected:
     // as there are Handles that refer to it.
 
     // Release a MetaAllocatorHandle.
-    WTF_EXPORT_PRIVATE virtual void release(const LockHolder&, MetaAllocatorHandle&);
+    WTF_EXPORT_PRIVATE virtual void release(const Locker<Lock>&, MetaAllocatorHandle&);
 private:
     
     friend class MetaAllocatorHandle;
     
-    class FreeSpaceNode : public RedBlackTree<FreeSpaceNode, size_t>::Node {
+    class FreeSpaceNode final : public RedBlackTree<FreeSpaceNode, size_t>::ThreadSafeNode {
+        WTF_MAKE_TZONE_ALLOCATED(FreeSpaceNode);
+        WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FreeSpaceNode);
     public:
-        FreeSpaceNode() = default;
-
         size_t sizeInBytes()
         {
             return m_end.untaggedPtr<size_t>() - m_start.untaggedPtr<size_t>();
@@ -181,7 +182,7 @@ private:
     size_t roundUp(size_t sizeInBytes);
     
     FreeSpaceNode* allocFreeSpaceNode();
-    WTF_EXPORT_PRIVATE void freeFreeSpaceNode(FreeSpaceNode*);
+    WTF_EXPORT_PRIVATE void freeFreeSpaceNode(CheckedPtr<FreeSpaceNode>&&);
     
     size_t m_allocationGranule;
     size_t m_pageSize;
@@ -189,9 +190,9 @@ private:
     unsigned m_logPageSize;
     
     Tree m_freeSpaceSizeMap;
-    HashMap<FreeSpacePtr, FreeSpaceNode*> m_freeSpaceStartAddressMap;
-    HashMap<FreeSpacePtr, FreeSpaceNode*> m_freeSpaceEndAddressMap;
-    HashMap<uintptr_t, size_t> m_pageOccupancyMap;
+    UncheckedKeyHashMap<FreeSpacePtr, CheckedPtr<FreeSpaceNode>> m_freeSpaceStartAddressMap;
+    UncheckedKeyHashMap<FreeSpacePtr, CheckedPtr<FreeSpaceNode>> m_freeSpaceEndAddressMap;
+    UncheckedKeyHashMap<uintptr_t, size_t> m_pageOccupancyMap;
     
     size_t m_bytesAllocated;
     size_t m_bytesReserved;

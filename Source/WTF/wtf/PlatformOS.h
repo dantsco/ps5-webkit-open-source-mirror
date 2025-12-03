@@ -52,6 +52,11 @@
 #define WTF_OS_AIX 1
 #endif
 
+/* OS(ANDROID) - Android */
+#if defined(__ANDROID__) || defined(ANDROID)
+#define WTF_OS_ANDROID 1
+#endif
+
 /* OS(DARWIN) - Any Darwin-based OS, including macOS, iOS, iPadOS, macCatalyst, tvOS, watchOS and visionOS */
 #if defined(__APPLE__)
 #define WTF_OS_DARWIN 1
@@ -63,7 +68,7 @@
 #endif
 
 /* OS(IOS) - iOS and iPadOS only (iPhone and iPad), not including macCatalyst, not including watchOS, not including tvOS, not including visionOS */
-#if OS(DARWIN) && (TARGET_OS_IOS && !(defined(TARGET_OS_MACCATALYST) && TARGET_OS_MACCATALYST) && !(defined(TARGET_OS_XR) && TARGET_OS_XR))
+#if OS(DARWIN) && (TARGET_OS_IOS && !(defined(TARGET_OS_MACCATALYST) && TARGET_OS_MACCATALYST) && !(defined(TARGET_OS_VISION) && TARGET_OS_VISION))
 #define WTF_OS_IOS 1
 #endif
 
@@ -92,6 +97,11 @@
 #define WTF_OS_FUCHSIA 1
 #endif
 
+/* OS(HAIKU) - Haiku */
+#if defined(__HAIKU__)
+#define WTF_OS_HAIKU 1
+#endif
+
 /* OS(HURD) - GNU/Hurd */
 #if defined(__GNU__)
 #define WTF_OS_HURD 1
@@ -112,6 +122,10 @@
 #define WTF_OS_OPENBSD 1
 #endif
 
+#if defined(__QNX__)
+#define WTF_OS_QNX 1
+#endif
+
 /* OS(WINDOWS) - Any version of Windows */
 #if defined(WIN32) || defined(_WIN32)
 #define WTF_OS_WINDOWS 1
@@ -123,6 +137,7 @@
     || OS(DARWIN)           \
     || OS(FREEBSD)          \
     || OS(FUCHSIA)          \
+    || OS(HAIKU)            \
     || OS(HURD)             \
     || OS(LINUX)            \
     || OS(NETBSD)           \

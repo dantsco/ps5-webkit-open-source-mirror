@@ -48,6 +48,8 @@
 /* PLATFORM(WIN) */
 #if defined(BUILDING_GTK__)
 #define WTF_PLATFORM_GTK 1
+#elif defined(BUILDING_HAIKU__)
+#define WTF_PLATFORM_HAIKU 1
 #elif defined(BUILDING_WPE__)
 #define WTF_PLATFORM_WPE 1
 #elif defined(BUILDING_JSCONLY__)
@@ -90,6 +92,6 @@
 #endif
 
 /* PLATFORM(VISION) */
-#if defined(TARGET_OS_XR) && TARGET_OS_XR
+#if defined(TARGET_OS_VISION) && TARGET_OS_VISION
 #define WTF_PLATFORM_VISION 1
 #endif

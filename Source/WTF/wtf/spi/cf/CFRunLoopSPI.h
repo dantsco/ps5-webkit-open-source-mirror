@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc.  All rights reserved.
+ * Copyright (C) 2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,6 +25,8 @@
 
 #pragma once
 
+DECLARE_SYSTEM_HEADER
+
 #include <CoreFoundation/CoreFoundation.h>
 
 #if USE(APPLE_INTERNAL_SDK)
@@ -33,8 +35,8 @@
 
 #endif
 
-extern "C" {
+WTF_EXTERN_C_BEGIN
 
 CF_EXPORT Boolean _CFRunLoopSetPerCalloutAutoreleasepoolEnabled(Boolean enabled) API_AVAILABLE(macos(10.16), ios(14.0), watchos(7.0), tvos(14.0));
 
-}
+WTF_EXTERN_C_END

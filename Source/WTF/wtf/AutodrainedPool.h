@@ -28,9 +28,7 @@
 
 #pragma once
 
-#if defined(__OBJC__) && !defined(__clang_tapi__)
-#error Please use @autoreleasepool instead of AutodrainedPool.
-#endif
+#if !(defined(__OBJC__) && !defined(__clang_tapi__))
 
 #include <wtf/Noncopyable.h>
 
@@ -41,7 +39,7 @@ namespace WTF {
 // It can be used in cross-platform code; will compile down to nothing for non-Cocoa platforms.
 
 class AutodrainedPool {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(AutodrainedPool);
     WTF_MAKE_NONCOPYABLE(AutodrainedPool);
 
 public:
@@ -62,3 +60,5 @@ private:
 } // namespace WTF
 
 using WTF::AutodrainedPool;
+
+#endif // !(defined(__OBJC__) && !defined(__clang_tapi__))

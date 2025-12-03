@@ -23,6 +23,12 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#pragma once
+
+DECLARE_SYSTEM_HEADER
+
+#ifdef __OBJC__
+
 #import <Foundation/Foundation.h>
 
 #if USE(APPLE_INTERNAL_SDK)
@@ -36,3 +42,4 @@
 + (nonnull NSArray<NSString *> *)matchedLanguagesFromAvailableLanguages:(nonnull NSArray<NSString *> *)availableLanguages forPreferredLanguages:(nonnull NSArray<NSString *> *)preferredLanguages;
 @end
 
+#endif // __OBJC__

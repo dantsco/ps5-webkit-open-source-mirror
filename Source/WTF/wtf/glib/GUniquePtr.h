@@ -18,8 +18,7 @@
  *
  */
 
-#ifndef GUniquePtr_h
-#define GUniquePtr_h
+#pragma once
 
 #if USE(GLIB)
 
@@ -66,6 +65,19 @@ using GUniquePtr = std::unique_ptr<T, U>;
 
 FOR_EACH_GLIB_DELETER(WTF_DEFINE_GPTR_DELETER)
 #undef FOR_EACH_GLIB_DELETER
+
+#define WTF_DEFINE_DEPRECATED_GPTR_DELETER(typeName, deleterFunc) \
+    template<> struct GPtrDeleter<typeName> { \
+        void operator()(typeName* ptr) const \
+        { \
+            ALLOW_DEPRECATED_DECLARATIONS_BEGIN; \
+            deleterFunc(ptr); \
+            ALLOW_DEPRECATED_DECLARATIONS_END; \
+        } \
+    };
+
+WTF_DEFINE_DEPRECATED_GPTR_DELETER(GValueArray, g_value_array_free)
+#undef WTF_DEFINE_DEPRECATED_GPTR_DELETER
 
 template <typename T> class GUniqueOutPtr {
     WTF_MAKE_NONCOPYABLE(GUniqueOutPtr);
@@ -130,6 +142,3 @@ using WTF::GUniqueOutPtr;
 using WTF::GFreeDeleter;
 
 #endif // USE(GLIB)
-
-#endif // GUniquePtr_h
-

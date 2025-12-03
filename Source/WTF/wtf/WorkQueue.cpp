@@ -40,17 +40,7 @@
 
 namespace WTF {
 
-WorkQueue& WorkQueue::main()
-{
-    static NeverDestroyed<RefPtr<WorkQueue>> mainWorkQueue;
-    static std::once_flag onceKey;
-    std::call_once(onceKey, [&] {
-        mainWorkQueue.get() = constructMainWorkQueue();
-    });
-    return *mainWorkQueue.get();
-}
-
-WorkQueueBase::WorkQueueBase(const char* name, Type type, QOS qos)
+WorkQueueBase::WorkQueueBase(ASCIILiteral name, Type type, QOS qos)
 {
     platformInitialize(name, type, qos);
 }
@@ -60,14 +50,14 @@ WorkQueueBase::~WorkQueueBase()
     platformInvalidate();
 }
 
-Ref<WorkQueue> WorkQueue::create(const char* name, QOS qos)
-{
-    return adoptRef(*new WorkQueue(name, qos));
-}
-
-Ref<ConcurrentWorkQueue> ConcurrentWorkQueue::create(const char* name, QOS qos)
+Ref<ConcurrentWorkQueue> ConcurrentWorkQueue::create(ASCIILiteral name, QOS qos)
 {
     return adoptRef(*new ConcurrentWorkQueue(name, qos));
+}
+
+void ConcurrentWorkQueue::dispatch(Function<void()>&& function)
+{
+    WorkQueueBase::dispatch(WTFMove(function));
 }
 
 #if !PLATFORM(COCOA)
@@ -99,16 +89,13 @@ void ConcurrentWorkQueue::apply(size_t iterations, WTF::Function<void(size_t ind
     class ThreadPool {
     public:
         ThreadPool()
-        {
             // We don't need a thread for the current core.
-            unsigned threadCount = numberOfProcessorCores() - 1;
-
-            m_workers.reserveInitialCapacity(threadCount);
-            for (unsigned i = 0; i < threadCount; ++i) {
-                m_workers.uncheckedAppend(Thread::create("ThreadPool Worker", [this] {
+            : m_workers(numberOfProcessorCores() - 1, [this](size_t) {
+                return Thread::create("ThreadPool Worker"_s, [this] {
                     threadBody();
-                }));
-            }
+                });
+            })
+        {
         }
 
         size_t workerCount() const { return m_workers.size(); }
@@ -121,7 +108,7 @@ void ConcurrentWorkQueue::apply(size_t iterations, WTF::Function<void(size_t ind
         }
 
     private:
-        NO_RETURN void threadBody()
+        [[noreturn]] void threadBody()
         {
             while (true) {
                 const WTF::Function<void ()>* function;
@@ -147,11 +134,7 @@ void ConcurrentWorkQueue::apply(size_t iterations, WTF::Function<void(size_t ind
         Vector<Ref<Thread>> m_workers;
     };
 
-    static LazyNeverDestroyed<ThreadPool> threadPool;
-    static std::once_flag onceFlag;
-    std::call_once(onceFlag, [] {
-        threadPool.construct();
-    });
+    static NeverDestroyed<ThreadPool> threadPool;
 
     // Cap the worker count to the number of iterations (excluding this thread)
     const size_t workerCount = std::min(iterations - 1, threadPool->workerCount());
@@ -184,5 +167,39 @@ void ConcurrentWorkQueue::apply(size_t iterations, WTF::Function<void(size_t ind
     condition.wait(lock, [&] { return !activeThreads; });
 }
 #endif
+
+WorkQueue& WorkQueue::mainSingleton()
+{
+    static NeverDestroyed<RefPtr<WorkQueue>> mainWorkQueue = [] {
+        WTF::initialize();
+        return adoptRef(*new WorkQueue(CreateMain));
+    }();
+    return *mainWorkQueue.get();
+}
+
+Ref<WorkQueue> WorkQueue::create(ASCIILiteral name, QOS qos)
+{
+    return adoptRef(*new WorkQueue(name, qos));
+}
+
+WorkQueue::WorkQueue(ASCIILiteral name, QOS qos)
+    : WorkQueueBase(name, Type::Serial, qos)
+{
+}
+
+void WorkQueue::dispatch(Function<void()>&& function)
+{
+    WorkQueueBase::dispatch(WTFMove(function));
+}
+
+bool WorkQueue::isCurrent() const
+{
+    return currentSequence() == m_threadID;
+}
+
+ConcurrentWorkQueue::ConcurrentWorkQueue(ASCIILiteral name, QOS qos)
+    : WorkQueueBase(name, Type::Concurrent, qos)
+{
+}
 
 }
